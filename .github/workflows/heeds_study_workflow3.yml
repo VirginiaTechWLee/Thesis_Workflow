@@ -26,7 +26,7 @@ jobs:
       - name: Validate HEEDS project
         if: ${{ github.event.inputs.skip_validation == 'false' }}
         run: |
-          python Scripts/validate_heeds_project.py `
+          & "C:\ProgramData\anaconda3\python.exe" Scripts/validate_heeds_project.py `
             --heeds_file heeds_projects/${{ github.event.inputs.heeds_file }} `
             --templates_dir templates `
             --baseline_dir baseline
@@ -55,3 +55,4 @@ jobs:
           git add heeds_results\
           git commit -m "HEEDS study: ${{ github.event.inputs.heeds_file }} - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
           git push
+

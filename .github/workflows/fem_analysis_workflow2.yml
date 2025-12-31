@@ -26,10 +26,10 @@ jobs:
           # For now, just copy baseline (we'll create generate_case_bush.py later)
           # Case 0 = baseline verification
           if ("${{ github.event.inputs.case_number }}" -eq "0") {
-            python Scripts/generate_baseline_bush.py
+            & "C:\ProgramData\anaconda3\python.exe" Scripts/generate_baseline_bush.py
           } else {
             Write-Host "TODO: Generate case ${{ github.event.inputs.case_number }}"
-            python Scripts/generate_baseline_bush.py
+            & "C:\ProgramData\anaconda3\python.exe" Scripts/generate_baseline_bush.py
           }
       
       - name: Setup current_run directory
@@ -69,7 +69,7 @@ jobs:
       
       - name: Compute delta vs baseline
         run: |
-          python Scripts/compute_delta.py `
+          & "C:\ProgramData\anaconda3\python.exe" Scripts/compute_delta.py `
             --current current_run/acceleration_results.csv `
             --baseline baseline/acceleration_results.csv `
             --output current_run/acceleration_results_delta.csv
@@ -77,10 +77,11 @@ jobs:
       - name: Verify delta is zero
         if: ${{ github.event.inputs.verify_zero == 'true' }}
         run: |
-          python Scripts/verify_delta_zero.py current_run/acceleration_results_delta.csv
+          & "C:\ProgramData\anaconda3\python.exe" Scripts/verify_delta_zero.py current_run/acceleration_results_delta.csv
       
       - name: Commit results to Git
         run: |
           git add current_run\
           git commit -m "FEM analysis - Case ${{ github.event.inputs.case_number }} - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
           git push
+
