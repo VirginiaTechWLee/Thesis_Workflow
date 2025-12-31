@@ -12,7 +12,8 @@ jobs:
         uses: actions/checkout@v3
       
       - name: Generate baseline Bush.blk
-        run: & "C:\ProgramData\anaconda3\python.exe" Scripts/generate_baseline_bush.py
+        run: |
+          & "C:\ProgramData\anaconda3\python.exe" Scripts/generate_baseline_bush.py
       
       - name: Clear baseline folder
         run: |
@@ -60,4 +61,5 @@ jobs:
           git add Bush.blk
           git commit -m "Update baseline - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
           git push
+
 
