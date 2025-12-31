@@ -1,0 +1,42 @@
+# Temporary working files
+work/
+*.tmp
+
+# Nastran outputs in root (only commit in baseline/ and organized folders)
+/*.MASTER
+/*.op2
+/*.pch
+/*.f06
+/*.log
+/*.bdf
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS files
+desktop.ini
+.DS_Store
+Thumbs.db
+
+# Temporary CSV files in root
+/acceleration_results.csv
+/displacement_results.csv
+
+# Old/test files
+RandomBeamX.dat
+randombeamx.*
+FBM_TO_DBALL.bat
+
+# Folders to exclude
+Generate heeds file/
+New folder/
+
+# Keep these directories
+!baseline/
+!current_run/
+!heeds_projects/
+!heeds_results/
+!Scripts/
+!templates/

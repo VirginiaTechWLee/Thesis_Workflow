@@ -1,0 +1,119 @@
+1
+ 
+ 
+ 
+ 
+                                                             
+                        Copyright 2022 Siemens               
+                         All Rights Reserved.                
+                                                             
+               This software and related documentation are   
+                    proprietary to Siemens Industry          
+                             Software Inc.                   
+                                                             
+              Siemens and the Siemens logo are registered    
+             trademarks of Siemens Trademark GmbH & Co. KG.  
+            Simcenter is a trademark, or registered trademark
+                of Siemens Industry Software Inc. or its     
+             subsidiaries in the United States and in other  
+             countries.  Simcenter NASTRAN is a registered   
+               trademark of Siemens Industry Software Inc.   
+            All other trademarks, registered trademarks or   
+               service marks belong to their respective      
+                        holders.                             
+                                                             
+           LIMITATIONS TO U.S. GOVERNMENT RIGHTS. UNPUBLISHED
+           - RIGHTS RESERVED UNDER THE COPYRIGHT LAWS OF THE 
+            UNITED STATES. This computer software and related
+               computer software documentation have been     
+            developed exclusively at private expense and are 
+           provided subject to the following rights:  If this
+               computer software and computer  software      
+            documentation qualify as "commercial items" (as  
+             that term is defined in FAR 2.101), their use,  
+            duplication or disclosure by the U.S. Government 
+           is subject to the protections and restrictions as 
+            set forth in the Siemens commercial license for  
+            software and/or documentation, as prescribed in  
+           FAR 12.212 and FAR 27.405(b)(2)(i) (for civilian  
+             agencies) and in DFARS 227.7202-1(a) and DFARS  
+           227.7202-3(a) (for the Department of Defense), or 
+           any successor or similar regulation, as applicable
+           or as amended from time to time.  If this computer
+           software and computer documentation do not qualify
+            as "commercial items", then they are "restricted 
+           computer software" and are provided with "restric-
+            tive rights", and their use, duplication or dis- 
+            closure by the U.S. Government is subject to the 
+            protections and restrictions as set forth in FAR 
+           27.404(b) and FAR 52-227-14 (for civilian agencies
+           ), and DFARS 227.7203-5(c) and DFARS 252.227-7014 
+           (for the Department of Defense), or any successor 
+           or similar regulation, as applicable or as amended
+           from time to time. Siemens Industry Software Inc. 
+           5800 Granite Parkway, Suite 600, Plano, TX 75024  
+ 
+
+                * * * * * * * * * * * * * * * * * * * *
+                * * * * * * * * * * * * * * * * * * * *
+                * *                                 * *
+                * *                                 * *
+                * *                                 * *
+                * *                                 * *
+                * *     Simcenter Nastran 2206      * *
+                * *                                 * *
+                * *       VERSION - 2206.0091       * *
+                * *                                 * *
+                * *          APR 30, 2022           * *
+                * *                                 * *
+                * *                                 * *
+                * *Intel64 Family 6 Model 85 Steppi * *
+                * *                                 * *
+                * *MODEL Intel(R) Xeon(R) Gold 6258 * *
+                * *                                 * *
+                * *       Windows Server 2019       * *
+                * *                                 * *
+                * *       Compiled for X86-64       * *
+                * *                                 * *
+                * * * * * * * * * * * * * * * * * * * *
+                * * * * * * * * * * * * * * * * * * * *
+1 
+  
+                      Welcome to Simcenter Nastran
+                      ----------------------------
+  
+  
+ This "news" information can be turned off by setting "news=no" in the runtime
+ configuration (RC) file.  The "news" keyword can be set in the system RC file
+ for global, or multi-user control, and in a local file for local control.
+ Individual jobs can be controlled by setting news to yes or no on the command
+ line.
+1                                                                              JUNE  27, 2025  SIMCENTER NASTRAN  4/30/22   PAGE     1
+                                                                                                                                    
+0        N A S T R A N    F I L E    A N D    S Y S T E M    P A R A M E T E R    E C H O                                           
+0                                                                                                                                   
+                                                                                                                                    
+                                                                                                                                    
+     NASTRAN BUFFSIZE=32769 $(D:/PROGRAM FILES/SIEMENS/SIMCENTER3D_2206/NXNASTRAN/CON
+     NASTRAN BUFFPOOL=125674                                                         
+     NASTRAN DIAGA=128 DIAGB=0 $(D:/PROGRAM FILES/SIEMENS/SIMCENTER3D_2206/NXNASTRAN/
+     NASTRAN REAL=205972963328 $(MEMORY LIMIT FOR MPI AND OTHER SPECIALIZED MODULES) 
+     $INIT MASTER(S)                                                                 
+     NASTRAN SYSTEM(442)=-1,SYSTEM(319)=1                                            
+ *** USER FATAL MESSAGE 1215 (CKRVER)
+     THE PRIMARY DATABASE IS INCOMPATIBLE WITH THIS VERSION OF THE PROGRAM.
+     USER INFORMATION:
+        PRIMARY DATABASE VERSION IS 20.1
+        PROGRAM VERSION IS 2020.2
+     USER ACTIONS:
+        1. CONVERT THE PRIMARY DATABASE USING THE SIEMENS PLM SOFTWARE CUSTOMER SUPPORT MIGRATION TOOLS.
+        2. OR, SET SYSTEM CELL 148 ON NASTRAN STATEMENT TO IGNORE THIS INCOMPATIBILITY, E.G.,
+           "NASTR SYSTEM(148)=1".    HOWEVER, IGNORING THIS INCOMPATIBILITY MAY LEAD TO UNPREDICTABLE RESULTS.
+0FATAL ERROR
+1                                        * * * END OF JOB * * *
+ 
+ 
+ *** USER WARNING MESSAGE 1152 (XCLNUP)
+     SOME DBSETS IN THIS DATA BASE WERE NOT INITIALIZED COMPLETELY.
+     USER INFORMATION: THE DATA BASE CREATED IN THIS RUN IS TOO IMMATURE TO BE RESTARTED.
+     USER ACTION: DELETE THIS DATA BASE BEFORE STARTING YOUR NEXT RUN.

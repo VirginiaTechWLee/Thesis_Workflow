@@ -1,0 +1,86 @@
+name: FEM Analysis Workflow2
+
+on:
+  workflow_dispatch:
+    inputs:
+      case_number:
+        description: 'Case number (0 for baseline verification, 1-73 for parametric cases)'
+        required: true
+        type: string
+      verify_zero:
+        description: 'Verify delta is zero (for baseline verification)'
+        required: false
+        type: boolean
+        default: false
+  
+jobs:
+  fem-analysis:
+    runs-on: self-hosted
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Generate case-specific Bush.blk
+        run: |
+          # For now, just copy baseline (we'll create generate_case_bush.py later)
+          # Case 0 = baseline verification
+          if ("${{ github.event.inputs.case_number }}" -eq "0") {
+            python Scripts/generate_baseline_bush.py
+          } else {
+            Write-Host "TODO: Generate case ${{ github.event.inputs.case_number }}"
+            python Scripts/generate_baseline_bush.py
+          }
+      
+      - name: Setup current_run directory
+        run: |
+          if (Test-Path current_run) {
+            Remove-Item current_run\* -Recurse -Force
+          } else {
+            mkdir current_run
+          }
+      
+      - name: Copy files for Nastran run
+        run: |
+          copy Bush.blk current_run\
+          copy templates\Fixed_base_beam.dat current_run\
+          copy templates\RandomBeamX.dat current_run\
+      
+      - name: Run NASTRAN (two-step process)
+        run: |
+          cd current_run
+          
+          # Step 1: Generate MASTER/DBALL files
+          & "D:\Program Files\Siemens\Simcenter3D_2206\NXNASTRAN\bin\nastranw.exe" Fixed_base_beam.dat scratch=no
+          
+          # Wait for files to stabilize  
+          Start-Sleep -Seconds 10
+          
+          # Step 2: Run analysis using MASTER/DBALL to create results
+          & "D:\Program Files\Siemens\Simcenter3D_2206\NXNASTRAN\bin\nastranw.exe" randombeamx.dat
+          
+          cd ..
+      
+      - name: Extract features from PCH
+        run: |
+          copy current_run\randombeamx.pch .
+          python Scripts\Pch_TO_CSV2.py
+          copy acceleration_results.csv current_run\
+      
+      - name: Compute delta vs baseline
+        run: |
+          python Scripts/compute_delta.py `
+            --current current_run/acceleration_results.csv `
+            --baseline baseline/acceleration_results.csv `
+            --output current_run/acceleration_results_delta.csv
+      
+      - name: Verify delta is zero
+        if: ${{ github.event.inputs.verify_zero == 'true' }}
+        run: |
+          python Scripts/verify_delta_zero.py current_run/acceleration_results_delta.csv
+      
+      - name: Commit results to Git
+        run: |
+          git add current_run\
+          git commit -m "FEM analysis - Case ${{ github.event.inputs.case_number }} - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+          git push

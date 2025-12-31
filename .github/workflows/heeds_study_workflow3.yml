@@ -1,0 +1,57 @@
+name: HEEDS Study Workflow3
+
+on:
+  workflow_dispatch:
+    inputs:
+      heeds_file:
+        description: 'HEEDS project file (from heeds_projects/)'
+        required: true
+        type: choice
+        options:
+          - Square_Beam_scenario_short_rev.heeds
+      skip_validation:
+        description: 'Skip pre-flight validation checks'
+        required: false
+        type: boolean
+        default: false
+  
+jobs:
+  heeds-study:
+    runs-on: self-hosted
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Validate HEEDS project
+        if: ${{ github.event.inputs.skip_validation == 'false' }}
+        run: |
+          python Scripts/validate_heeds_project.py `
+            --heeds_file heeds_projects/${{ github.event.inputs.heeds_file }} `
+            --templates_dir templates `
+            --baseline_dir baseline
+      
+      - name: Create timestamped results directory
+        id: setup
+        run: |
+          $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+          $results_dir = "heeds_results/run_$timestamp"
+          mkdir $results_dir
+          echo "results_dir=$results_dir" >> $env:GITHUB_OUTPUT
+          Write-Host "Results will be saved to: $results_dir"
+      
+      - name: Copy HEEDS project to results directory
+        run: |
+          copy heeds_projects\${{ github.event.inputs.heeds_file }} ${{ steps.setup.outputs.results_dir }}\
+      
+      - name: Run HEEDS study
+        run: |
+          cd ${{ steps.setup.outputs.results_dir }}
+          heeds ${{ github.event.inputs.heeds_file }}
+          cd ..\..
+      
+      - name: Commit results to Git
+        run: |
+          git add heeds_results\
+          git commit -m "HEEDS study: ${{ github.event.inputs.heeds_file }} - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+          git push
