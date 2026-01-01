@@ -37,11 +37,11 @@ jobs:
       - name: Run NASTRAN (two-step process)
         run: |
           # Step 1: Generate MASTER/DBALL files
-          & "D:\Program Files\Siemens\Simcenter3D_2206\NXNASTRAN\bin\nastranw.exe" Fixed_base_beam.dat scratch=no
+          & "C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe" Fixed_base_beam.dat scratch=no
           # Wait for files to stabilize
           Start-Sleep -Seconds 10
           # Step 2: Run analysis using MASTER/DBALL to create results
-          & "D:\Program Files\Siemens\Simcenter3D_2206\NXNASTRAN\bin\nastranw.exe" randombeamx.dat
+          & "C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe" randombeamx.dat
       - name: Move Nastran outputs to baseline
         run: |
           move randombeamx.pch baseline\
