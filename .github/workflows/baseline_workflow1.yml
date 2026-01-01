@@ -47,7 +47,7 @@ jobs:
           
       - name: Run NASTRAN (two-step process)
         run: |
-          & "C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe" Fixed_base_beam.dat scratch=no
+          & "C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe" Fixed_base_beam.dat scratch=no dbs=.
           Start-Sleep -Seconds 10
           $randFile = Get-ChildItem -Name "RandomBeamX.dat","randombeamx.dat" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($randFile) {
