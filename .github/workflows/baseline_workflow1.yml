@@ -19,7 +19,7 @@ jobs:
           Write-Host "=== All files ==="
           dir
           
-      - name: Generate baseline Bush.blk
+      - name: Clean previous Nastran outputs\n        run: |\n          Remove-Item *.pch,*.pch.*,*.f06,*.op2,*.op2.*,*.MASTER,*.DBALL,*.f04,*.log -ErrorAction SilentlyContinue\n\n      - name: Generate baseline Bush.blk
         run: |
           & "C:\ProgramData\anaconda3\python.exe" Scripts/generate_baseline_bush.py
           
