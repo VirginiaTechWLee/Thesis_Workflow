@@ -22,6 +22,7 @@ jobs:
       - name: Generate baseline Bush.blk
         run: |
           & "C:\ProgramData\anaconda3\python.exe" Scripts/generate_baseline_bush.py
+          
       - name: Clear baseline folder
         run: |
           if (Test-Path baseline) {
@@ -29,11 +30,16 @@ jobs:
           } else {
             mkdir baseline
           }
+          
       - name: Copy files for Nastran run
         run: |
           copy Bush.blk baseline\
           copy templates\Fixed_base_beam.dat .
-          copy templates\RandomBeamX.dat .
+          if (Test-Path templates\RandomBeamX.dat) { copy templates\RandomBeamX.dat . }
+          elseif (Test-Path templates\randombeamx.dat) { copy templates\randombeamx.dat . }
+          elseif (Test-Path templates\RANDOMBEAMX.dat) { copy templates\RANDOMBEAMX.dat . }
+          else { Write-Error "RandomBeamX.dat not found in templates"; exit 1 }
+          
       - name: Run NASTRAN (two-step process)
         run: |
           # Step 1: Generate MASTER/DBALL files
@@ -41,19 +47,53 @@ jobs:
           # Wait for files to stabilize
           Start-Sleep -Seconds 10
           # Step 2: Run analysis using MASTER/DBALL to create results
-          & "C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe" randombeamx.dat
+          $randFile = Get-ChildItem -Name "RandomBeamX.dat","randombeamx.dat","RANDOMBEAMX.dat" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($randFile) {
+            & "C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe" $randFile
+          } else {
+            Write-Error "RandomBeamX.dat not found for Nastran run"
+            exit 1
+          }
+          
+      - name: Debug - List files after Nastran
+        run: |
+          Write-Host "=== Files in current directory ==="
+          dir
+          Write-Host "=== Looking for output files ==="
+          dir *.pch,*.f06,*.op2,*.MASTER -ErrorAction SilentlyContinue
+          
       - name: Move Nastran outputs to baseline
         run: |
-          move randombeamx.pch baseline\
-          move randombeamx.f06 baseline\
-          move randombeamx.op2 baseline\
-          move fixed_base_beam.MASTER baseline\
+          # Handle case sensitivity for pch file
+          $pch = Get-ChildItem -Name "*.pch" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($pch) { move $pch baseline\ } else { Write-Host "WARNING: No .pch file found" }
+          
+          # Handle case sensitivity for f06 file (get the randombeamx one, not fixed_base_beam)
+          $f06 = Get-ChildItem -Name "*randombeamx*.f06","*RandomBeamX*.f06" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($f06) { move $f06 baseline\ } else { Write-Host "WARNING: No randombeamx .f06 file found" }
+          
+          # Handle case sensitivity for op2 file
+          $op2 = Get-ChildItem -Name "*.op2" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($op2) { move $op2 baseline\ } else { Write-Host "WARNING: No .op2 file found" }
+          
+          # Handle case sensitivity for MASTER file
+          $master = Get-ChildItem -Name "*.MASTER" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($master) { move $master baseline\ } else { Write-Host "WARNING: No .MASTER file found" }
+          
       - name: Extract PCH to CSV
         run: |
-          copy baseline\randombeamx.pch .
-          python Scripts\Pch_TO_CSV2.py
+          $pch = Get-ChildItem baseline\*.pch -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($pch) {
+            copy $pch.FullName .
+            python Scripts\Pch_TO_CSV2.py
+          } else {
+            Write-Error "No .pch file found in baseline"
+            exit 1
+          }
+          
       - name: Save CSV to baseline folder
         run: copy acceleration_results.csv baseline\
+        
       - name: Commit baseline to Git
         run: |
           git add baseline\
