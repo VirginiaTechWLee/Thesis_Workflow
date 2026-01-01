@@ -1,20 +1,27 @@
 name: Baseline Workflow1
-
 on:
   workflow_dispatch:
-  
 jobs:
   generate-baseline:
     runs-on: self-hosted
-    
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
-      
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          
+      - name: Debug - List files
+        run: |
+          Write-Host "=== Current directory ==="
+          pwd
+          Write-Host "=== Templates folder ==="
+          dir templates\
+          Write-Host "=== All files ==="
+          dir
+          
       - name: Generate baseline Bush.blk
         run: |
           & "C:\ProgramData\anaconda3\python.exe" Scripts/generate_baseline_bush.py
-      
       - name: Clear baseline folder
         run: |
           if (Test-Path baseline) {
@@ -22,44 +29,34 @@ jobs:
           } else {
             mkdir baseline
           }
-      
       - name: Copy files for Nastran run
         run: |
           copy Bush.blk baseline\
           copy templates\Fixed_base_beam.dat .
           copy templates\RandomBeamX.dat .
-      
       - name: Run NASTRAN (two-step process)
         run: |
           # Step 1: Generate MASTER/DBALL files
           & "D:\Program Files\Siemens\Simcenter3D_2206\NXNASTRAN\bin\nastranw.exe" Fixed_base_beam.dat scratch=no
-          
           # Wait for files to stabilize
           Start-Sleep -Seconds 10
-          
           # Step 2: Run analysis using MASTER/DBALL to create results
           & "D:\Program Files\Siemens\Simcenter3D_2206\NXNASTRAN\bin\nastranw.exe" randombeamx.dat
-      
       - name: Move Nastran outputs to baseline
         run: |
           move randombeamx.pch baseline\
           move randombeamx.f06 baseline\
           move randombeamx.op2 baseline\
           move fixed_base_beam.MASTER baseline\
-      
       - name: Extract PCH to CSV
         run: |
           copy baseline\randombeamx.pch .
           python Scripts\Pch_TO_CSV2.py
-      
       - name: Save CSV to baseline folder
         run: copy acceleration_results.csv baseline\
-      
       - name: Commit baseline to Git
         run: |
           git add baseline\
           git add Bush.blk
           git commit -m "Update baseline - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
           git push
-
-
