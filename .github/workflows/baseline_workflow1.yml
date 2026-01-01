@@ -18,6 +18,10 @@ jobs:
           dir templates\
           Write-Host "=== All files ==="
           dir
+
+      - name: Clean previous Nastran outputs
+        run: |
+          Remove-Item *.pch,*.pch.*,*.f06,*.op2,*.op2.*,*.MASTER,*.DBALL,*.f04,*.log -ErrorAction SilentlyContinue
           
       - name: Clean previous Nastran outputs\n        run: |\n          Remove-Item *.pch,*.pch.*,*.f06,*.op2,*.op2.*,*.MASTER,*.DBALL,*.f04,*.log -ErrorAction SilentlyContinue\n\n      - name: Generate baseline Bush.blk
         run: |
@@ -37,17 +41,13 @@ jobs:
           copy templates\Fixed_base_beam.dat .
           if (Test-Path templates\RandomBeamX.dat) { copy templates\RandomBeamX.dat . }
           elseif (Test-Path templates\randombeamx.dat) { copy templates\randombeamx.dat . }
-          elseif (Test-Path templates\RANDOMBEAMX.dat) { copy templates\RANDOMBEAMX.dat . }
           else { Write-Error "RandomBeamX.dat not found in templates"; exit 1 }
           
       - name: Run NASTRAN (two-step process)
         run: |
-          # Step 1: Generate MASTER/DBALL files
           & "C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe" Fixed_base_beam.dat scratch=no
-          # Wait for files to stabilize
           Start-Sleep -Seconds 10
-          # Step 2: Run analysis using MASTER/DBALL to create results
-          $randFile = Get-ChildItem -Name "RandomBeamX.dat","randombeamx.dat","RANDOMBEAMX.dat" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $randFile = Get-ChildItem -Name "RandomBeamX.dat","randombeamx.dat" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($randFile) {
             & "C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe" $randFile
           } else {
@@ -60,23 +60,23 @@ jobs:
           Write-Host "=== Files in current directory ==="
           dir
           Write-Host "=== Looking for output files ==="
-          dir *.pch,*.f06,*.op2,*.MASTER -ErrorAction SilentlyContinue
+          dir *.pch*,*.f06,*.op2*,*.MASTER -ErrorAction SilentlyContinue
           
       - name: Move Nastran outputs to baseline
         run: |
-          # Handle case sensitivity for pch file
-          $pch = Get-ChildItem -Name "*.pch" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($pch) { move $pch baseline\ } else { Write-Host "WARNING: No .pch file found" }
+          $pch = Get-ChildItem -Name "*.pch.*","*.pch" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($pch) { 
+            move $pch baseline\randombeamx.pch
+          } else { 
+            Write-Host "WARNING: No .pch file found" 
+          }
           
-          # Handle case sensitivity for f06 file (get the randombeamx one, not fixed_base_beam)
           $f06 = Get-ChildItem -Name "*randombeamx*.f06","*RandomBeamX*.f06" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($f06) { move $f06 baseline\ } else { Write-Host "WARNING: No randombeamx .f06 file found" }
           
-          # Handle case sensitivity for op2 file
-          $op2 = Get-ChildItem -Name "*.op2" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $op2 = Get-ChildItem -Name "*.op2.*","*.op2" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($op2) { move $op2 baseline\ } else { Write-Host "WARNING: No .op2 file found" }
           
-          # Handle case sensitivity for MASTER file
           $master = Get-ChildItem -Name "*.MASTER" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($master) { move $master baseline\ } else { Write-Host "WARNING: No .MASTER file found" }
           
