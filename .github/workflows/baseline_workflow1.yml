@@ -39,8 +39,10 @@ jobs:
         run: |
           copy Bush.blk baseline\
           copy templates\Fixed_base_beam.dat .
-          if (Test-Path templates\RandomBeamX.dat) { copy templates\RandomBeamX.dat . }
-          elseif (Test-Path templates\randombeamx.dat) { copy templates\randombeamx.dat . }
+          if (Test-Path templates\RandomBeamX.dat) { copy templates\RandomBeamX.dat .
+          copy templates\Recoveries.blk . }
+          elseif (Test-Path templates\randombeamx.dat) { copy templates\RandomBeamX.dat .
+          copy templates\Recoveries.blk . }
           else { Write-Error "RandomBeamX.dat not found in templates"; exit 1 }
           
       - name: Run NASTRAN (two-step process)
