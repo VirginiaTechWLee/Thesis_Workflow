@@ -248,6 +248,132 @@ GitHub no longer accepts password authentication. Use a **Personal Access Token 
 
 ---
 
+## GitHub Variables (Required Setup)
+
+### Overview
+
+This repository uses **GitHub Actions Variables** to store environment-specific paths. This allows different users to use the same workflow without modifying the YAML files.
+
+> ⚠️ **IMPORTANT**: Before running any workflows, you MUST configure these variables for your environment.
+
+### Setting Up Variables
+
+1. Go to your repository on GitHub
+2. Navigate to: `Settings → Secrets and variables → Actions → Variables`
+3. Click **"New repository variable"** for each variable below
+
+**Direct link:**
+```
+https://github.com/YOUR_USERNAME/YOUR_REPO/settings/variables/actions
+```
+
+### Required Variables
+
+| Variable Name | Description | Example Value |
+|--------------|-------------|---------------|
+| `PYTHON_PATH` | Full path to Python executable | `C:\ProgramData\anaconda3\python.exe` |
+| `NASTRAN_PATH` | Full path to Nastran executable | `C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe` |
+| `SCRATCH_DIR` | Writable directory for Nastran temp files | `D:\scratch` |
+| `HEEDS_PATH` | Full path to HEEDS solver executable | `C:\HEEDS\MDO\Ver2410\Win64\solver\heeds.exe` |
+
+### Finding Your Paths
+
+**Python:**
+```powershell
+# If Python is in PATH
+(Get-Command python).Source
+
+# Common locations
+C:\ProgramData\anaconda3\python.exe
+C:\Users\<username>\anaconda3\python.exe
+C:\Python311\python.exe
+```
+
+**MSC Nastran:**
+```powershell
+# Search for Nastran
+Get-ChildItem -Path "C:\Program Files\MSC.Software" -Recurse -Name "nastran.exe" -ErrorAction SilentlyContinue
+
+# Common locations
+C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe
+C:\Program Files\MSC.Software\MSC_Nastran\2024.1\bin\nastran.exe
+```
+
+**Siemens Nastran (alternative):**
+```powershell
+# Search for Siemens Nastran
+Get-ChildItem -Path "C:\Program Files\Siemens","D:\Program Files\Siemens" -Recurse -Name "nastranw.exe" -ErrorAction SilentlyContinue
+
+# Common locations
+D:\Program Files\Siemens\Simcenter3D_2206\NXNASTRAN\bin\nastranw.exe
+```
+
+**HEEDS:**
+```powershell
+# Search for HEEDS
+Get-ChildItem -Path "C:\HEEDS" -Recurse -Name "heeds.exe" -ErrorAction SilentlyContinue
+
+# Command-line solver (use this one for workflows)
+C:\HEEDS\MDO\Ver2410\Win64\solver\heeds.exe
+
+# GUI application (not for automated workflows)
+C:\HEEDS\MDO\Ver2410\Win64\HEEDSMDO.exe
+```
+
+**Scratch Directory:**
+```powershell
+# Check if D:\scratch exists and is writable
+if (-not (Test-Path D:\scratch)) { mkdir D:\scratch }
+"test" | Out-File D:\scratch\test.txt
+Remove-Item D:\scratch\test.txt
+Write-Host "D:\scratch is writable"
+
+# Alternative locations if D: doesn't exist
+C:\scratch
+C:\temp\nastran_scratch
+$env:TEMP\nastran_scratch
+```
+
+### How Variables Are Used in Workflows
+
+The workflow YAML files reference these variables using the `${{ vars.VARIABLE_NAME }}` syntax:
+
+```yaml
+# Example usage in workflow
+- name: Run Python script
+  run: |
+    & "${{ vars.PYTHON_PATH }}" Scripts/generate_baseline_bush.py
+
+- name: Run Nastran
+  run: |
+    & "${{ vars.NASTRAN_PATH }}" Fixed_base_beam.dat scr=no sdir="${{ vars.SCRATCH_DIR }}"
+
+- name: Run HEEDS
+  run: |
+    & "${{ vars.HEEDS_PATH }}" project.heeds
+```
+
+### Verifying Your Setup
+
+After adding variables, verify them:
+
+1. Go to `Settings → Secrets and variables → Actions → Variables`
+2. Confirm all 4 variables are listed with correct values
+3. Run a test workflow to confirm paths work
+
+### Updating Variables
+
+If you upgrade software (e.g., Nastran 2025.1 → 2026.1):
+
+1. Go to `Settings → Secrets and variables → Actions → Variables`
+2. Click on the variable name
+3. Update the value
+4. Click **"Update variable"**
+
+No workflow file changes needed!
+
+---
+
 ## GitHub Permissions
 
 ### Repository Permissions

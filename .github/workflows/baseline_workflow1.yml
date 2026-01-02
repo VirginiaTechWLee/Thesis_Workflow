@@ -10,19 +10,34 @@ jobs:
         with:
           clean: true
           
+      - name: Validate environment variables
+        run: |
+          $missing = @()
+          if (-not "${{ vars.PYTHON_PATH }}") { $missing += "PYTHON_PATH" }
+          if (-not "${{ vars.NASTRAN_PATH }}") { $missing += "NASTRAN_PATH" }
+          if (-not "${{ vars.SCRATCH_DIR }}") { $missing += "SCRATCH_DIR" }
+          if ($missing.Count -gt 0) {
+            Write-Error "Missing required GitHub variables: $($missing -join ', ')"
+            Write-Host "Please add these variables at: Settings -> Secrets and variables -> Actions -> Variables"
+            exit 1
+          }
+          Write-Host "All required variables configured"
+          Write-Host "Python: ${{ vars.PYTHON_PATH }}"
+          Write-Host "Nastran: ${{ vars.NASTRAN_PATH }}"
+          Write-Host "Scratch: ${{ vars.SCRATCH_DIR }}"
+          
       - name: Setup and validate scratch directory
         run: |
-          if (-not (Test-Path D:\scratch)) { 
-            mkdir D:\scratch 
+          if (-not (Test-Path "${{ vars.SCRATCH_DIR }}")) { 
+            mkdir "${{ vars.SCRATCH_DIR }}" 
           }
-          # Test write permission
-          $testFile = "D:\scratch\test_write_$([guid]::NewGuid()).tmp"
+          $testFile = "${{ vars.SCRATCH_DIR }}\test_write_$([guid]::NewGuid()).tmp"
           try {
             "test" | Out-File $testFile
             Remove-Item $testFile
-            Write-Host "Scratch directory D:\scratch is writable"
+            Write-Host "Scratch directory ${{ vars.SCRATCH_DIR }} is writable"
           } catch {
-            Write-Error "Cannot write to D:\scratch - check permissions"
+            Write-Error "Cannot write to ${{ vars.SCRATCH_DIR }} - check permissions"
             exit 1
           }
           
@@ -38,11 +53,11 @@ jobs:
       - name: Clean previous Nastran outputs
         run: |
           Remove-Item *.pch,*.pch.*,*.f06,*.op2,*.op2.*,*.MASTER,*.DBALL,*.f04,*.log,*.IFPDAT -ErrorAction SilentlyContinue
-          Remove-Item D:\scratch\* -Force -ErrorAction SilentlyContinue
+          Remove-Item "${{ vars.SCRATCH_DIR }}\*" -Force -ErrorAction SilentlyContinue
           
       - name: Generate baseline Bush.blk
         run: |
-          & "C:\ProgramData\anaconda3\python.exe" Scripts/generate_baseline_bush.py
+          & "${{ vars.PYTHON_PATH }}" Scripts/generate_baseline_bush.py
           
       - name: Clear baseline folder
         run: |
@@ -63,7 +78,7 @@ jobs:
           
       - name: Run NASTRAN Step 1 - Fixed Base Beam
         run: |
-          & "C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe" Fixed_base_beam.dat scr=no sdir=D:\scratch
+          & "${{ vars.NASTRAN_PATH }}" Fixed_base_beam.dat scr=no sdir="${{ vars.SCRATCH_DIR }}"
           
       - name: Validate Fixed Base Beam run
         run: |
@@ -90,7 +105,7 @@ jobs:
           Start-Sleep -Seconds 5
           $randFile = Get-ChildItem -Name "RandomBeamX.dat","randombeamx.dat" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($randFile) {
-            & "C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe" $randFile sdir=D:\scratch
+            & "${{ vars.NASTRAN_PATH }}" $randFile sdir="${{ vars.SCRATCH_DIR }}"
           } else {
             Write-Error "RandomBeamX.dat not found for Nastran run"
             exit 1
@@ -143,7 +158,7 @@ jobs:
           $pch = Get-ChildItem baseline\*.pch -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($pch) {
             copy $pch.FullName .
-            & "C:\ProgramData\anaconda3\python.exe" Scripts\Pch_TO_CSV2.py
+            & "${{ vars.PYTHON_PATH }}" Scripts\Pch_TO_CSV2.py
           } else {
             Write-Error "No .pch file found in baseline"
             exit 1
