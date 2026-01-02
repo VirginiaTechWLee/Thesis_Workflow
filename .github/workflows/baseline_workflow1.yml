@@ -63,7 +63,7 @@ jobs:
           
       - name: Run NASTRAN Step 1 - Fixed Base Beam
         run: |
-          & "C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe" Fixed_base_beam.dat scratch=no sdir=D:\scratch
+          & "C:\Program Files\MSC.Software\MSC_Nastran\2025.1\bin\nastran.exe" Fixed_base_beam.dat scr=no sdir=D:\scratch
           
       - name: Validate Fixed Base Beam run
         run: |
