@@ -155,7 +155,7 @@ jobs:
             Write-Host "WARNING: No randombeamx .f06 file found" 
           }
           
-          # Move OP2 file
+          # Move randombeamx OP2 file
           $op2 = Get-ChildItem -Name "*randombeamx*.op2*","*RandomBeamX*.op2*" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($op2) { 
             move $op2 baseline\randombeamx.op2
@@ -171,6 +171,22 @@ jobs:
             Write-Host "Moved $master to baseline\"
           } else { 
             Write-Host "WARNING: No .MASTER file found" 
+          }
+          
+          # Move fixed_base_beam.f06 (contains modal frequencies)
+          if (Test-Path "fixed_base_beam.f06") {
+            move fixed_base_beam.f06 baseline\
+            Write-Host "Moved fixed_base_beam.f06 to baseline\"
+          } else {
+            Write-Host "WARNING: No fixed_base_beam.f06 file found"
+          }
+          
+          # Move fixed_base_beam.op2 (contains mode shapes)
+          if (Test-Path "fixed_base_beam.op2") {
+            move fixed_base_beam.op2 baseline\
+            Write-Host "Moved fixed_base_beam.op2 to baseline\"
+          } else {
+            Write-Host "WARNING: No fixed_base_beam.op2 file found"
           }
           
       - name: Extract PCH to CSV
@@ -199,6 +215,8 @@ jobs:
           git add -f baseline\randombeamx.f06
           git add -f baseline\randombeamx.op2
           git add -f baseline\fixed_base_beam.MASTER
+          git add -f baseline\fixed_base_beam.f06
+          git add -f baseline\fixed_base_beam.op2
           git add -f baseline\*.csv
           git add -f baseline\*.png
           git add -f baseline\Bush.blk
