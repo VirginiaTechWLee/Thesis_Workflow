@@ -165,7 +165,10 @@ jobs:
           }
           
       - name: Save CSV to baseline folder
-        run: copy acceleration_results.csv baseline\
+        run: |
+          copy acceleration_results.csv baseline\
+          copy displacement_results.csv baseline\
+          copy *.png baseline\
         
       - name: Commit baseline to Git
         run: |
