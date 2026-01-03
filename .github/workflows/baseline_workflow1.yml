@@ -137,21 +137,41 @@ jobs:
           
       - name: Move Nastran outputs to baseline
         run: |
+          # Move PCH file
           $pch = Get-ChildItem -Name "*.pch.*","*.pch" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($pch) { 
             move $pch baseline\randombeamx.pch
+            Write-Host "Moved $pch to baseline\randombeamx.pch"
           } else { 
             Write-Host "WARNING: No .pch file found" 
           }
           
+          # Move randombeamx f06 file
           $f06 = Get-ChildItem -Name "*randombeamx*.f06","*RandomBeamX*.f06" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($f06) { move $f06 baseline\ } else { Write-Host "WARNING: No randombeamx .f06 file found" }
+          if ($f06) { 
+            move $f06 baseline\
+            Write-Host "Moved $f06 to baseline\"
+          } else { 
+            Write-Host "WARNING: No randombeamx .f06 file found" 
+          }
           
-          $op2 = Get-ChildItem -Name "*.op2.*","*.op2" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($op2) { move $op2 baseline\ } else { Write-Host "WARNING: No .op2 file found" }
+          # Move OP2 file
+          $op2 = Get-ChildItem -Name "*randombeamx*.op2*","*RandomBeamX*.op2*" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($op2) { 
+            move $op2 baseline\randombeamx.op2
+            Write-Host "Moved $op2 to baseline\randombeamx.op2"
+          } else { 
+            Write-Host "WARNING: No randombeamx .op2 file found" 
+          }
           
+          # Move MASTER file
           $master = Get-ChildItem -Name "*.MASTER" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($master) { move $master baseline\ } else { Write-Host "WARNING: No .MASTER file found" }
+          if ($master) { 
+            move $master baseline\
+            Write-Host "Moved $master to baseline\"
+          } else { 
+            Write-Host "WARNING: No .MASTER file found" 
+          }
           
       - name: Extract PCH to CSV
         run: |
@@ -164,15 +184,25 @@ jobs:
             exit 1
           }
           
-      - name: Save CSV to baseline folder
+      - name: Save all results to baseline folder
         run: |
           copy acceleration_results.csv baseline\
           copy displacement_results.csv baseline\
           copy *.png baseline\
+          Write-Host "=== Baseline folder contents ==="
+          dir baseline\
         
       - name: Commit baseline to Git
         run: |
-          git add baseline\
+          # Force add files that might be in .gitignore
+          git add -f baseline\randombeamx.pch
+          git add -f baseline\randombeamx.f06
+          git add -f baseline\randombeamx.op2
+          git add -f baseline\fixed_base_beam.MASTER
+          git add -f baseline\*.csv
+          git add -f baseline\*.png
+          git add -f baseline\Bush.blk
           git add Bush.blk
+          git status
           git commit -m "Update baseline - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
           git push
