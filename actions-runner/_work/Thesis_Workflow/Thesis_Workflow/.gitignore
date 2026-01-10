@@ -1,0 +1,79 @@
+# Temporary working files
+work/
+*.tmp
+
+# Nastran outputs in root (only commit in baseline/ and organized folders)
+/*.MASTER
+/*.op2
+/*.pch
+/*.f06
+/*.log
+/*.bdf
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS files
+desktop.ini
+.DS_Store
+Thumbs.db
+
+# Temporary CSV files in root
+/acceleration_results.csv
+/displacement_results.csv
+
+# Old/test files
+RandomBeamX.dat
+randombeamx.*
+FBM_TO_DBALL.bat
+
+# Folders to exclude
+Generate heeds file/
+New folder/
+
+# Keep these directories
+!baseline/
+!current_run/
+!heeds_projects/
+!heeds_results/
+!Scripts/
+!templates/
+
+# Nastran temp files
+*.DBALL
+*.MASTER
+*.f04
+*.log
+*.IFPDAT
+*.op2
+randombeamx.pch
+
+# Root level outputs (keep in baseline/ or current_run/)
+acceleration_results.csv
+displacement_results.csv
+*.png
+
+# =============================================================================
+# HEEDS DATABASE & LARGE FILES (add to end of .gitignore)
+# =============================================================================
+
+# SQLite database files (can get very large - 2GB+ for Monte Carlo studies)
+heeds/database/*.db
+heeds/database/*.db-journal
+heeds/database/*.db-wal
+heeds/database/*.db-shm
+
+# HEEDS temporary/working files
+heeds/results/**/HEEDS_Work/
+heeds/results/**/*.sim
+heeds/results/**/*.bak
+
+# Keep heeds structure
+!heeds/
+!heeds/database/
+!heeds/projects/
+!heeds/results/
+!heeds/scripts/
+!heeds/tests/

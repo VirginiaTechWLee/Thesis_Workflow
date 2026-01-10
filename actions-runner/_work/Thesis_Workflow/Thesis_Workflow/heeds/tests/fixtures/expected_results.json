@@ -1,0 +1,53 @@
+{
+  "bush_blk": {
+    "baseline": {
+      "num_lines": 10,
+      "bolt_1_k4": "1.+8",
+      "bolt_2_k4": "1.+12",
+      "bolt_2_k5": "1.+12",
+      "bolt_2_k6": "1.+12"
+    },
+    "loosened_bolt_5_level_3": {
+      "bolt_5_k4": "1.+6",
+      "bolt_5_k5": "1.+6",
+      "bolt_5_k6": "1.+6",
+      "other_bolts_k4": "1.+12"
+    }
+  },
+  "case_mapping": {
+    "case_0": {"bolt": null, "level": null, "description": "baseline"},
+    "case_1": {"bolt": 2, "level": 1, "stiffness": 1e4},
+    "case_8": {"bolt": 2, "level": 8, "stiffness": 1e11},
+    "case_9": {"bolt": 3, "level": 1, "stiffness": 1e4},
+    "case_47": {"bolt": 7, "level": 7, "stiffness": 1e10},
+    "case_72": {"bolt": 10, "level": 8, "stiffness": 1e11}
+  },
+  "stiffness_levels": {
+    "1": 1e4,
+    "2": 1e5,
+    "3": 1e6,
+    "4": 1e7,
+    "5": 1e8,
+    "6": 1e9,
+    "7": 1e10,
+    "8": 1e11,
+    "9": 1e12
+  },
+  "study_configurations": {
+    "sweep": {
+      "num_cases": 72,
+      "num_bolts": 9,
+      "levels_per_bolt": 8
+    },
+    "doe": {
+      "method": "LatinHypercube",
+      "min_cases": 50,
+      "recommended_cases": 200
+    },
+    "monte_carlo": {
+      "method": "MonteCarlo",
+      "min_cases": 100,
+      "recommended_cases": 1000
+    }
+  }
+}

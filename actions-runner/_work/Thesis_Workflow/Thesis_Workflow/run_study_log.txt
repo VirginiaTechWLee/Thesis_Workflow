@@ -1,0 +1,190 @@
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_fixed.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x000001C179176590>
+Study loaded: <HEEDS._wrappers.Study object at 0x000001C179176610>
+Starting study.run()...
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_fixed.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x00000291E33866D0>
+Study loaded: <HEEDS._wrappers.Study object at 0x00000291E3386750>
+Starting study.run()...
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_fixed.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x000001FEAB266590>
+Study loaded: <HEEDS._wrappers.Study object at 0x000001FEAB266610>
+Starting study.run()...
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_fixed.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x0000025487956590>
+Study loaded: <HEEDS._wrappers.Study object at 0x0000025487956610>
+Starting study.run()...
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_fixed.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x00000212AA8E6590>
+Study loaded: <HEEDS._wrappers.Study object at 0x00000212AA8E6610>
+Starting study.run()...
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_fixed.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x0000022E5B456590>
+Study loaded: <HEEDS._wrappers.Study object at 0x0000022E5B456610>
+Starting study.run()...
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_fixed.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x000002537B726590>
+Study loaded: <HEEDS._wrappers.Study object at 0x000002537B726610>
+Starting study.run()...
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_fixed.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x0000025C0FA26590>
+Study loaded: <HEEDS._wrappers.Study object at 0x0000025C0FA26610>
+Starting study.run()...
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_fixed.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x0000022050176590>
+Study loaded: <HEEDS._wrappers.Study object at 0x0000022050176610>
+Starting study.run()...
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_v2.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x0000024469B46590>
+Study loaded: <HEEDS._wrappers.Study object at 0x0000024469B46610>
+Starting study.run()...
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_v2.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x000001F3A6086590>
+Study loaded: <HEEDS._wrappers.Study object at 0x000001F3A6086610>
+Starting study.run()...
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_v2.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x00000200561A6690>
+Study loaded: <HEEDS._wrappers.Study object at 0x00000200561A6710>
+Starting study.run()...
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\thesis_study_v2.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x000001FAE3876550>
+Study loaded: <HEEDS._wrappers.Study object at 0x000001FAE38765D0>
+Starting study.run()...
+study.run() called successfully!
+Calling study.wait() to wait for completion...
+study.wait() completed!
+============================================================
+Study run complete!
+============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\full_sweep.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x000001E214F16650>
+Study loaded: <HEEDS._wrappers.Study object at 0x000001E214B73310>
+Starting study.run()...

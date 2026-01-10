@@ -1,0 +1,269 @@
+name: FEM Analysis Workflow2
+on:
+  workflow_dispatch:
+    inputs:
+      case_label:
+        description: 'Case label for tracking (e.g., HEEDS_047, MC_1523, sweep_21)'
+        required: true
+        type: string
+      bolt_numbers:
+        description: 'Bolt(s) to loosen: 2-10, comma-separated (e.g., "5" or "2,5,7"). Leave empty for baseline.'
+        required: false
+        type: string
+        default: ''
+      stiffness_levels:
+        description: 'Stiffness level(s) 1-9, or direct values (e.g., "3" or "1e6" or "3,6,4")'
+        required: false
+        type: string
+        default: ''
+      is_baseline:
+        description: 'Run as baseline verification (ignore bolt/level inputs)'
+        required: false
+        type: boolean
+        default: false
+      verify_zero_delta:
+        description: 'Verify delta is zero (for baseline verification only)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  fem-analysis:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Validate environment variables
+        run: |
+          $missing = @()
+          if (-not "${{ vars.PYTHON_PATH }}") { $missing += "PYTHON_PATH" }
+          if (-not "${{ vars.NASTRAN_PATH }}") { $missing += "NASTRAN_PATH" }
+          if (-not "${{ vars.SCRATCH_DIR }}") { $missing += "SCRATCH_DIR" }
+          if ($missing.Count -gt 0) {
+            Write-Error "Missing required GitHub variables: $($missing -join ', ')"
+            Write-Host "Please add these variables at: Settings -> Secrets and variables -> Actions -> Variables"
+            exit 1
+          }
+          Write-Host "All required variables configured"
+          Write-Host "Python: ${{ vars.PYTHON_PATH }}"
+          Write-Host "Nastran: ${{ vars.NASTRAN_PATH }}"
+          Write-Host "Scratch: ${{ vars.SCRATCH_DIR }}"
+
+      - name: Display case configuration
+        run: |
+          Write-Host "========================================"
+          Write-Host "CASE CONFIGURATION"
+          Write-Host "========================================"
+          Write-Host "Case Label: ${{ github.event.inputs.case_label }}"
+          Write-Host "Is Baseline: ${{ github.event.inputs.is_baseline }}"
+          Write-Host "Bolt Numbers: ${{ github.event.inputs.bolt_numbers }}"
+          Write-Host "Stiffness Levels: ${{ github.event.inputs.stiffness_levels }}"
+          Write-Host "Verify Zero Delta: ${{ github.event.inputs.verify_zero_delta }}"
+          Write-Host "========================================"
+
+      - name: Setup and validate scratch directory
+        run: |
+          if (-not (Test-Path "${{ vars.SCRATCH_DIR }}")) { 
+            mkdir "${{ vars.SCRATCH_DIR }}" 
+          }
+          $testFile = "${{ vars.SCRATCH_DIR }}\test_write_$([guid]::NewGuid()).tmp"
+          try {
+            "test" | Out-File $testFile
+            Remove-Item $testFile
+            Write-Host "Scratch directory ${{ vars.SCRATCH_DIR }} is writable"
+          } catch {
+            Write-Error "Cannot write to ${{ vars.SCRATCH_DIR }} - check permissions"
+            exit 1
+          }
+
+      - name: Clean previous Nastran outputs
+        run: |
+          Remove-Item *.pch,*.pch.*,*.f06,*.op2,*.op2.*,*.MASTER,*.DBALL,*.f04,*.log,*.IFPDAT -ErrorAction SilentlyContinue
+          Remove-Item "${{ vars.SCRATCH_DIR }}\*" -Force -ErrorAction SilentlyContinue
+
+      - name: Generate case-specific Bush.blk
+        run: |
+          $isBaseline = "${{ github.event.inputs.is_baseline }}" -eq "true"
+          $boltNumbers = "${{ github.event.inputs.bolt_numbers }}"
+          $stiffnessLevels = "${{ github.event.inputs.stiffness_levels }}"
+          $caseLabel = "${{ github.event.inputs.case_label }}"
+          
+          if ($isBaseline -or [string]::IsNullOrWhiteSpace($boltNumbers)) {
+            Write-Host "Generating BASELINE configuration"
+            & "${{ vars.PYTHON_PATH }}" Scripts/generate_case_bush.py --baseline --label "$caseLabel"
+          } else {
+            Write-Host "Generating case: Bolts=$boltNumbers, Levels=$stiffnessLevels"
+            
+            # Determine if levels are numeric (1-9) or direct stiffness values
+            $firstLevel = ($stiffnessLevels -split ',')[0].Trim()
+            $isDirectStiffness = $firstLevel -match '[eE]' -or [double]::TryParse($firstLevel, [ref]$null) -and [double]$firstLevel -gt 9
+            
+            if ($isDirectStiffness) {
+              & "${{ vars.PYTHON_PATH }}" Scripts/generate_case_bush.py --bolt "$boltNumbers" --stiffness "$stiffnessLevels" --label "$caseLabel"
+            } else {
+              & "${{ vars.PYTHON_PATH }}" Scripts/generate_case_bush.py --bolt "$boltNumbers" --level "$stiffnessLevels" --label "$caseLabel"
+            }
+          }
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to generate Bush.blk"
+            exit 1
+          }
+
+      - name: Setup case directory
+        run: |
+          $caseLabel = "${{ github.event.inputs.case_label }}"
+          $caseDir = "current_run/$caseLabel"
+          if (Test-Path $caseDir) {
+            Remove-Item "$caseDir\*" -Recurse -Force -ErrorAction SilentlyContinue
+          } else {
+            mkdir $caseDir -Force
+          }
+          Write-Host "Case directory: $caseDir"
+
+      - name: Copy files for Nastran run
+        run: |
+          $caseLabel = "${{ github.event.inputs.case_label }}"
+          copy Bush.blk "current_run/$caseLabel\"
+          copy templates\Fixed_base_beam.dat .
+          copy templates\Recoveries.blk .
+          if (Test-Path templates\RandomBeamX.dat) { copy templates\RandomBeamX.dat . }
+          elseif (Test-Path templates\randombeamx.dat) { copy templates\randombeamx.dat . }
+          else { Write-Error "RandomBeamX.dat not found in templates"; exit 1 }
+
+      - name: Run NASTRAN Step 1 - Fixed Base Beam
+        run: |
+          & "${{ vars.NASTRAN_PATH }}" Fixed_base_beam.dat scr=no sdir="${{ vars.SCRATCH_DIR }}"
+
+      - name: Validate Fixed Base Beam run
+        run: |
+          if (-not (Test-Path fixed_base_beam.f06)) {
+            Write-Error "fixed_base_beam.f06 not created - Nastran failed to run"
+            exit 1
+          }
+          $fatal = Select-String -Path "fixed_base_beam.f06" -Pattern "FATAL" -ErrorAction SilentlyContinue
+          if ($fatal) {
+            Write-Host "=== FATAL ERROR FOUND IN fixed_base_beam.f06 ==="
+            $fatal | ForEach-Object { Write-Host $_.Line }
+            Write-Error "FATAL error in Fixed_base_beam run"
+            exit 1
+          }
+          if (-not (Test-Path fixed_base_beam.MASTER)) {
+            Write-Error "fixed_base_beam.MASTER not created - check f06 for errors"
+            exit 1
+          }
+          Write-Host "Fixed Base Beam run completed successfully"
+
+      - name: Run NASTRAN Step 2 - Random Beam
+        run: |
+          Start-Sleep -Seconds 5
+          $randFile = Get-ChildItem -Name "RandomBeamX.dat","randombeamx.dat" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($randFile) {
+            & "${{ vars.NASTRAN_PATH }}" $randFile sdir="${{ vars.SCRATCH_DIR }}"
+          } else {
+            Write-Error "RandomBeamX.dat not found for Nastran run"
+            exit 1
+          }
+
+      - name: Validate Random Beam run
+        run: |
+          $f06 = Get-ChildItem -Name "*randombeamx*.f06","*RandomBeamX*.f06" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $f06) {
+            Write-Error "randombeamx.f06 not created - Nastran failed to run"
+            exit 1
+          }
+          $fatal = Select-String -Path $f06 -Pattern "FATAL" -ErrorAction SilentlyContinue
+          if ($fatal) {
+            Write-Host "=== FATAL ERROR FOUND IN $f06 ==="
+            $fatal | ForEach-Object { Write-Host $_.Line }
+            Write-Error "FATAL error in RandomBeamX run"
+            exit 1
+          }
+          Write-Host "Random Beam run completed successfully"
+
+      - name: Debug - List files after Nastran
+        run: |
+          Write-Host "=== Files in current directory ==="
+          dir
+          Write-Host "=== Looking for output files ==="
+          dir *.pch*,*.f06,*.op2*,*.MASTER -ErrorAction SilentlyContinue
+
+      - name: Move Nastran outputs to case folder
+        run: |
+          $caseLabel = "${{ github.event.inputs.case_label }}"
+          $caseDir = "current_run/$caseLabel"
+          
+          # Move PCH file
+          $pch = Get-ChildItem -Name "*.pch.*","*.pch" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($pch) { 
+            move $pch "$caseDir\randombeamx.pch"
+            Write-Host "Moved $pch to $caseDir\randombeamx.pch"
+          } else { 
+            Write-Error "No .pch file found"
+            exit 1
+          }
+          
+          # Move f06 files
+          $f06 = Get-ChildItem -Name "*randombeamx*.f06","*RandomBeamX*.f06" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($f06) { 
+            move $f06 "$caseDir\"
+            Write-Host "Moved $f06 to $caseDir\"
+          }
+          
+          if (Test-Path "fixed_base_beam.f06") {
+            move fixed_base_beam.f06 "$caseDir\"
+          }
+
+      - name: Extract PCH to CSV
+        run: |
+          $caseLabel = "${{ github.event.inputs.case_label }}"
+          $caseDir = "current_run/$caseLabel"
+          copy "$caseDir\randombeamx.pch" .
+          & "${{ vars.PYTHON_PATH }}" Scripts\Pch_TO_CSV2.py
+          copy acceleration_results.csv "$caseDir\"
+          copy displacement_results.csv "$caseDir\"
+          copy *.png "$caseDir\" -ErrorAction SilentlyContinue
+
+      - name: Compute delta vs baseline
+        run: |
+          $caseLabel = "${{ github.event.inputs.case_label }}"
+          $caseDir = "current_run/$caseLabel"
+          & "${{ vars.PYTHON_PATH }}" Scripts/compute_delta.py `
+            --current "$caseDir/acceleration_results.csv" `
+            --baseline baseline/acceleration_results.csv `
+            --output "$caseDir/acceleration_delta.csv"
+
+      - name: Verify delta is zero (baseline verification)
+        if: ${{ github.event.inputs.verify_zero_delta == 'true' }}
+        run: |
+          $caseLabel = "${{ github.event.inputs.case_label }}"
+          $caseDir = "current_run/$caseLabel"
+          & "${{ vars.PYTHON_PATH }}" Scripts/verify_delta_zero.py "$caseDir/acceleration_delta.csv"
+
+      - name: Display case summary
+        run: |
+          $caseLabel = "${{ github.event.inputs.case_label }}"
+          $caseDir = "current_run/$caseLabel"
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "CASE $caseLabel COMPLETE"
+          Write-Host "========================================"
+          Write-Host ""
+          Write-Host "=== Output Files ==="
+          dir "$caseDir\"
+          Write-Host ""
+          Write-Host "=== Bush.blk Configuration ==="
+          type "$caseDir\Bush.blk"
+
+      - name: Commit results to Git
+        run: |
+          $caseLabel = "${{ github.event.inputs.case_label }}"
+          $caseDir = "current_run/$caseLabel"
+          git add -f "$caseDir\*"
+          git add -f Bush.blk
+          git status
+          git commit -m "Case $caseLabel - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+          git push

@@ -1,0 +1,20 @@
+$ Femap Property 1 : Driving Cbush_1
+PBUSH          1       K1000000.1000000.1000000.    1.+4    1.+4    1.+4                
+$ Femap Property 2 : Cbush_2
+PBUSH          2       K1000000.1000000.1000000.    1.+4    1.+4    1.+4                
+$ Femap Property 3 : Cbush_3
+PBUSH          3       K1000000.1000000.1000000.    1.+4    1.+4    1.+4                
+$ Femap Property 4 : Cbush_4
+PBUSH          4       K1000000.1000000.1000000.    1.+4    1.+4    1.+4                
+$ Femap Property 5 : Cbush_5
+PBUSH          5       K1000000.1000000.1000000.    1.+4    1.+4    1.+4                
+$ Femap Property 6 : Cbush_6
+PBUSH          6       K1000000.1000000.1000000.    1.+4    1.+4    1.+4                
+$ Femap Property 7 : Cbush_7
+PBUSH          7       K1000000.1000000.1000000.    1.+4    1.+4    1.+4                
+$ Femap Property 8 : Cbush_8
+PBUSH          8       K1000000.1000000.1000000.    1.+4    1.+4    1.+4                
+$ Femap Property 9 : Cbush_9
+PBUSH          9       K1000000.1000000.1000000.    1.+4    1.+4    1.+4                
+$ Femap Property 10 : Cbush_10
+PBUSH         10       K1000000.1000000.1000000.    1.+4    1.+4    1.+4

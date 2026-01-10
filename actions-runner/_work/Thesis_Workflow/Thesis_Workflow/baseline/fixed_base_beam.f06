@@ -1,0 +1,930 @@
+1
+ 
+ 
+ 
+ 
+                      Warning: This computer program is protected by copyright law and international treaties.       
+                  Unauthorized use, reproduction or distribution of this computer program, or any portion of it, may 
+                                          result in severe civil and criminal penalties.                             
+                         Copyright (C) 2025 Hexagon AB and/or its subsidiaries. All rights reserved.                 
+ 
+ 
+                                              * * * * * * * * * * * * * * * * * * * *
+                                              * * * * * * * * * * * * * * * * * * * *
+                                              * *                                 * *
+                                              * *           Hexagon AB            * *
+                                              * *                                 * *
+                                              * *                                 * *
+                                              * *      M S C   N a s t r a n      * *
+                                              * *                                 * *
+                                              * *                                 * *
+                                              * *                                 * *
+                                              * *     Version 2025.1-d8fce9fe     * *
+                                              * *                                 * *
+                                              * *                                 * *
+                                              * *                                 * *
+                                              * *          JUN  9, 2025           * *
+                                              * *                                 * *
+                                              * *              Intel              * *
+                                              * *MODEL Intel(R) Core(TM) i9-14900 * *
+                                              * *       Windows 10.0 20348        * *
+                                              * *        Compiled for 8664        * *
+                                              * *                                 * *
+                                              * * * * * * * * * * * * * * * * * * * *
+                                              * * * * * * * * * * * * * * * * * * * *
+1News file
+  
+               Welcome to MSC Nastran 2025.1
+  
+   MSC Nastran brings powerful new features and enhancements for engineering
+   solutions in several releases through the year. Key enhancements in
+   Version 2025.1 are summarized below. Addtional details can be found in
+   the MSC Nastran Version 2025.1 Release Guide.
+  
+     MSC Nastran 2025.1 Features and Enhancements
+  
+     High Performance Computing (HPC)
+     - Significant performance improvements for FASTFR with GPGPU acceleration
+     - Significant performance improvements for acoustic panel participation
+       factor calculations
+     - FASTFR now enabled for models with frequency dependent properties
+     - MUMPS linear solver used to accelerate residual vector computation
+       for non-ACMS modal analysis
+  
+     SOL 200 NEO Topology Optimization
+     - New convergence / Progression control for Emendate optimizer
+     - Support of frequency/eigenvalue constraints for optimization
+     - Support of mode tracking for normal mode optimization
+     - Support of Automatic External Super Element (AESO) for normal mode
+       Topology optimizations
+     - New folder/file structure for a better overview of result files
+  
+     SOL 200 Dynamic Aero Optimization
+     - SOL 200 now supports dynamic aeroelasticity (gust and frequency
+       dependent loading)
+  
+     High Performance SOL 400 (NLPERF)
+     - Support Lagrange Multiplier for MPC and Rigid Elements
+     - Controls distributed surface load computation for shell elements with
+       offsets and the use of an additional enhancement for computing the
+       average nodal normal vector
+     - GPFORCE and ESE can be requested in ANALYSIS=NLSTAT
+     - OUTCTRL={STD,SOLUTION,INTERM} keyword in NLOPRM case control statement is
+       available
+     - The six node PENTA element is now available for use as a Gasket element
+       via use of collapsed eight node CHEXA element
+     - The CTRIA3/6 elements with PCOMP(G) are now available for interlaminar
+       shears via collapsed CQUAD4/CQUAD8 elements
+     - Support output of artificial damping energy
+     - Enhancement of VCCT capability
+     - Support GRAV for external modules
+  
+     Linear
+     - In all linear solution sequencies and in SOL400 nonlinear, the solid
+       composite PCOMPLS now supports the CPENTA element using a collapsed CHEXA
+1      element.
+  
+     Frequency Analysis
+     - For frequency dependent elements at interpolated frequencies
+       with only CBUSH, CELASi, CDAMPi, or CAABSF type elements
+       frequency dependent, STRESS/FORCE response for these
+       elements are automatically included in results.
+  
+  
+     Adams MNF Enhancements
+     - Adams MNF generation for large models has been significantly sped up.
+     - MSC Nastran supports the generation of enhanced MNF files with acoustic
+       modes using the uncoupled method, which facilitates the direct recovery
+       of acoustic pressure in Adams.  When modeling lighter fluids, the
+       uncoupled method is the recommended approach.
+  
+     Rotordynamics
+     - SOL128 analysis to start from previous converged solution. Updated
+       NHRMPRM entry to read input OP2 file containing the converged solution
+       from previous run and start analysis from frequency of interest.
+  
+     Superelements and Modules
+     - MSC Nastran can now automatically generate gravity loads for external
+       superelements and external modules in assembly run. This feature is
+       supported for linear soutions and SOL 400 including NLPERF.
+     - PLOTEL and PLTSURF are supported between modules
+       through MDPLTEL and MDPLTSF respectively.
+  
+     Documentation
+     - The complete documentation set is provided in a separate installer and
+       when installed is available at: MSC_DOC_DIR/doc/pdf_nastran directory,
+       where MSC_DOC_DIR is the directory where documentation was installed.
+       This help set includes cross references between documents, and links to
+       how-to videos, and example files
+  
+     Individual MSC Nastran documents are available for download from the
+       Simcompanion Website at:
+       http://simcompanion.hexagon.com/
+  
+     The documentation set includes the following:
+  
+         1.  MSC Nastran 2025.1 Installation and Operations Guide
+         2.  MSC Nastran 2025.1 Quick Reference Guide
+         3.  MSC Nastran 2025.1 Release Guide
+         4.  MSC Nastran 2025.1 Linear Statics Analysis User's Guide
+         5.  MSC Nastran 2025.1 Dynamic Analysis User's Guide
+         6.  MSC Nastran 2025.1 Superelements User's Guide
+         7.  MSC Nastran 2025.1 Rotordynamics User's Guide
+         8.  MSC Nastran 2025.1 Demonstration Problems Manual
+         9.  MSC Nastran 2025.1 Nastran Embedded Fatigue User's Guide
+1       10.  MSC Nastran 2025.1 Design Sensitivity and Optimization
+        11.  MSC Nastran 2025.1 Nonlinear User's Guide SOL 400
+        12.  MSC Nastran 2025.1 DMAP Programmer's Guide
+        13.  MSC Nastran 2025.1 High Performance Computing User's Guide
+        14.  MSC Nastran 2025.1 New Verification Manual
+        15.  MSC Nastran 2025.1 DEMATD Guide
+        16.  MSC Nastran 2025.1 Explicit Nonlinear (SOL 700) User's Guide
+        17.  MSC Nastran 2025.1 ACMS User's Guide
+  
+   Please refer to  MSC_DOC_DIR/doc/pdf_nastran/nastran_library.pdf
+   for the complete document set:
+  
+   Additional information about the release can be found at the MSC Nastran
+   Product Support page: http://simcompanion.hexagon.com
+  
+   The support page provides links to these valuable information:
+      * A searchable Knowledge Base containing examples and answers to thousands
+        of frequently asked questions written by MSC Software subject-matter
+        experts.
+      * Peer-to-peer Discussion Forums enabling you to post questions for your
+        MSC Software products and receive answers from other users worldwide.
+      * A list of known issues with the product and any workarounds.
+      * Instructions on how to contact technical support
+      * A mechanism for sending us product feedback or enhancement requests.
+      * Hardware and software requirements.
+      * Examples and Tutorials
+      * and much more.
+  
+   For information on training, please visit our Training web site
+  
+      https://hexagon.com/support-success/manufacturing-intelligence/
+      design-engineering-support/training-materials
+  
+1                                                                           JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     1
+                                                                                                                                    
+0        N A S T R A N    F I L E    A N D    S Y S T E M    P A R A M E T E R    E C H O                                           
+0                                                                                                                                   
+                                                                                                                                    
+                                                                                                                                    
+     $ SYSFIELD=SCR*(RAW=YES,BUFFIO=YES,WNUM=16,WSIZE=16MB) $(C:/PROGRAM FILES/MSC.SO
+     $ SYSFIELD=DBALL(RAW=YES,BUFFIO=YES,WNUM=16,WSIZE=16MB) $(C:/PROGRAM FILES/MSC.S
+     NASTRAN BUFFSIZE=65537 $(C:/PROGRAM FILES/MSC.SOFTWARE/MSC_NASTRAN/2025.1/CONF/N
+     $INIT MASTER(S)                                                                 
+     NASTRAN SYSTEM(442)=-1,SYSTEM(319)=1                                            
+1                                                                           JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     2
+                                                                                                                                    
+0        N A S T R A N    E X E C U T I V E    C O N T R O L    E C H O                                                             
+0                                                                                                                                   
+                                                                                                                                    
+                                                                                                                                    
+     ID BASIC,FEMAP                                                                          
+     SOL SEMODES                                                                             
+     CEND                                                                                    
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     3
+                                                                                                                                    
+0                                                                                                                                   
+0                                        C A S E    C O N T R O L    E C H O                                                        
+                 COMMAND                                                                                                            
+                 COUNT                                                                                                              
+                  1      MEFFMASS(ALL) = YES                                                                     
+                  2        TITLE = FIXED BASE MODES                                                              
+                  3        ECHO = NONE                                                                           
+                  4        DISPLACEMENT(PLOT) = ALL                                                              
+                  5        SPCFORCE(PLOT) = ALL                                                                  
+                  6        GPFORCE(PLOT) = ALL                                                                   
+                  7        FORCE(PLOT,CORNER) = ALL                                                              
+                  8        ESE(PLOT) = ALL                                                                       
+                  9        METHOD = 1                                                                            
+                 10        SPC = 1                                                                               
+                 11      BEGIN BULK                                                                              
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     4
+                                                                                                                                    
+0                                                                                                                                   
+                                              I N P U T   B U L K   D A T A   E C H O                                               
+                 ENTRY                                                                                                              
+                 COUNT        .   1  ..   2  ..   3  ..   4  ..   5  ..   6  ..   7  ..   8  ..   9  ..  10  .                      
+                              $INCLUDE "C:\Users\waynelee\Desktop\actions-runner\_work\Thesis_Workflow\Thesis_Workflow\Bush.blk"
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     5
+                                                                                                                                    
+0                                                                                                                                   
+                                        M O D E L   S U M M A R Y          BULK = 0
+                                   ENTRY NAME        NUMBER OF ENTRIES
+                                   ----------        -----------------
+                                        CBEAM                       10
+                                        CBUSH                       10
+                                       CORD2C                        1
+                                       CORD2S                        1
+                                        EIGRL                        1
+                                         GRID                       21
+                                         MAT1                        1
+                                        PARAM                        6
+                                       PBEAML                        1
+                                        PBUSH                       10
+                                         SPC1                        1
+
+ ^^^     
+ ^^^ >>> IFP OPERATIONS COMPLETE <<< 
+ ^^^     
+ *** USER INFORMATION MESSAGE 4109 (OUTPX2)
+     THE LABEL IS XXXXXXXX FOR FORTRAN UNIT    12
+     (MAXIMUM SIZE OF FORTRAN RECORDS WRITTEN =          7 WORDS.)
+           (NUMBER OF FORTRAN RECORDS WRITTEN =          8 RECORDS.)
+                (TOTAL DATA WRITTEN FOR LABEL =         17 WORDS.)
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     6
+                                                                                                                                    
+0                                                                                                                                   
+                           O U T P U T   F R O M   G R I D   P O I N T   W E I G H T   G E N E R A T O R
+0                                                     REFERENCE POINT =        0
+                                                                M O
+                      *  7.018456E-01  0.000000E+00  0.000000E+00  0.000000E+00  3.509228E+02  0.000000E+00 *
+                      *  0.000000E+00  7.018456E-01  0.000000E+00 -3.509228E+02  0.000000E+00  0.000000E+00 *
+                      *  0.000000E+00  0.000000E+00  7.018456E-01  0.000000E+00  0.000000E+00  0.000000E+00 *
+                      *  0.000000E+00 -3.509228E+02  0.000000E+00  2.351183E+05  0.000000E+00  0.000000E+00 *
+                      *  3.509228E+02  0.000000E+00  0.000000E+00  0.000000E+00  2.351183E+05  0.000000E+00 *
+                      *  0.000000E+00  0.000000E+00  0.000000E+00  0.000000E+00  0.000000E+00  3.028325E+01 *
+                                                                 S
+                                           *  1.000000E+00  0.000000E+00  0.000000E+00 *
+                                           *  0.000000E+00  1.000000E+00  0.000000E+00 *
+                                           *  0.000000E+00  0.000000E+00  1.000000E+00 *
+                               DIRECTION
+                          MASS AXIS SYSTEM (S)     MASS              X-C.G.        Y-C.G.        Z-C.G.
+                                  X            7.018456E-01      0.000000E+00  0.000000E+00  5.000000E+02
+                                  Y            7.018456E-01      0.000000E+00  0.000000E+00  5.000000E+02
+                                  Z            7.018456E-01      0.000000E+00  0.000000E+00  0.000000E+00
+                                                                I(S)
+                                           *  5.965688E+04  0.000000E+00  0.000000E+00 *
+                                           *  0.000000E+00  5.965688E+04  0.000000E+00 *
+                                           *  0.000000E+00  0.000000E+00  3.028325E+01 *
+                                                                I(Q)
+                                           *  5.965688E+04                             *
+                                           *                5.965688E+04               *
+                                           *                              3.028325E+01 *
+                                                                 Q
+                                           *  1.000000E+00  0.000000E+00  0.000000E+00 *
+                                           *  0.000000E+00  1.000000E+00  0.000000E+00 *
+                                           *  0.000000E+00  0.000000E+00  1.000000E+00 *
+
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     7
+                                                                                                                                    
+0                                                                                                                                   
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     8
+                                                                                                                                    
+0                                                                                                                                   
+0 RESULTANTS ABOUT ORIGIN OF SUPERELEMENT BASIC COORDINATE SYSTEM IN SUPERELEMENT BASIC SYSTEM COORDINATES.
+
+0                                                  OLOAD    RESULTANT       
+  SUBCASE/    LOAD
+  DAREA ID    TYPE       T1            T2            T3            R1            R2            R3
+0        1     FX    0.000000E+00     ----          ----          ----       0.000000E+00  0.000000E+00                             
+               FY       ----       0.000000E+00     ----       0.000000E+00     ----       0.000000E+00                             
+               FZ       ----          ----       0.000000E+00  0.000000E+00  0.000000E+00     ----                                  
+               MX       ----          ----          ----       0.000000E+00     ----          ----                                  
+               MY       ----          ----          ----          ----       0.000000E+00     ----                                  
+               MZ       ----          ----          ----          ----          ----       0.000000E+00                             
+             TOTALS  0.000000E+00  0.000000E+00  0.000000E+00  0.000000E+00  0.000000E+00  0.000000E+00
+ *** USER INFORMATION MESSAGE 5010 (LNCILS)
+     STURM SEQUENCE DATA FOR EIGENVALUE EXTRACTION.
+     TRIAL EIGENVALUE = 1.286294D+08, CYCLES = 1.805054D+03 THE STURM COUNT = 5
+     User information:
+     This message is automatic output during eigenvalue extraction.  This
+     can be used, along with the list of eigenvalues, to identify the modes
+     found. See the MSC NASTRAN Numerical Methods User's Guide.
+ *** USER INFORMATION MESSAGE 5010 (LNCILS)
+     STURM SEQUENCE DATA FOR EIGENVALUE EXTRACTION.
+     TRIAL EIGENVALUE = 2.362585D+09, CYCLES = 7.735954D+03 THE STURM COUNT = 10
+     User information:
+     This message is automatic output during eigenvalue extraction.  This
+     can be used, along with the list of eigenvalues, to identify the modes
+     found. See the MSC NASTRAN Numerical Methods User's Guide.
+
+ TABLE OF SHIFTS:  (LNNRIGL)
+ SHIFT #        SHIFT VALUE         FREQUENCY, CYCLES     # EIGENVALUES BELOW    # NEW EIGENVALUES FOUND
+     1.        1.2862942E+08          1.8050544E+03                 5                       10
+     2.        2.3625851E+09          7.7359538E+03                10                        0
+
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     9
+                                                                                                                                    
+0                                                                                                                                   
+0
+
+
+                          E I G E N V A L U E  A N A L Y S I S   S U M M A R Y   (READ MODULE) 
+
+
+
+                                     BLOCK SIZE USED ......................     7
+
+                                     NUMBER OF DECOMPOSITIONS .............     2
+
+                                     NUMBER OF ROOTS FOUND ................    10
+
+                                     NUMBER OF SOLVES REQUIRED ............     7
+
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    10
+                                                                                                                                    
+0                                                                                                                                   
+ 
+                                              R E A L   E I G E N V A L U E S
+   MODE    EXTRACTION      EIGENVALUE            RADIANS             CYCLES            GENERALIZED         GENERALIZED
+    NO.       ORDER                                                                       MASS              STIFFNESS
+        1         1        1.544794E+05        3.930386E+02        6.255404E+01        1.000000E+00        1.544794E+05
+        2         2        2.535256E+06        1.592249E+03        2.534143E+02        1.000000E+00        2.535256E+06
+        3         3        4.797326E+07        6.926273E+03        1.102351E+03        1.000000E+00        4.797326E+07
+        4         4        8.711152E+07        9.333355E+03        1.485450E+03        1.000000E+00        8.711152E+07
+        5         5        1.222720E+08        1.105767E+04        1.759882E+03        1.000000E+00        1.222720E+08
+        6         6        4.347924E+08        2.085168E+04        3.318647E+03        1.000000E+00        4.347924E+08
+        7         7        5.755257E+08        2.399012E+04        3.818146E+03        1.000000E+00        5.755257E+08
+        8         8        1.084360E+09        3.292962E+04        5.240912E+03        1.000000E+00        1.084360E+09
+        9         9        1.598935E+09        3.998669E+04        6.364079E+03        1.000000E+00        1.598935E+09
+       10        10        1.800939E+09        4.243747E+04        6.754133E+03        1.000000E+00        1.800939E+09
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    11
+                                                                                                                                    
+0                                                                                                                                   
+
+                                       M O D A L   E F F E C T I V E   M A S S   S U M M A R Y
+
+
+
+                                                    TOTAL EFFECTIVE MASS FRACTION
+                                         REFERENCE POINT AT ORIGIN OF BASIC COORDINATE SYSTEM
+
+
+                        T1                T2                T3                R1                R2                R3
+                   9.454433E-01      9.450709E-01      9.391817E-01      9.999999E-01      9.997119E-01      9.260297E-17
+
+
+
+
+                                                        EFFECTIVE MASS MATRIX   
+                       ***                                                                                  ***
+                       *   1.718608E-03 -4.406385E-15 -2.063096E-12  3.371367E-13  9.085604E-01 -2.406157E-11 *
+                       *  -4.406385E-15  1.717931E-03 -2.122642E-13 -9.089103E-01 -1.247495E-12 -3.998941E-12 *
+                       *  -2.063096E-12 -2.122642E-13  1.707226E-03  3.923161E-13 -1.203398E-10  2.476249E-12 *
+                       *   3.371367E-13 -9.089103E-01  3.923161E-13  6.089563E+02  2.194713E-11  8.054925E-12 *
+                       *   9.085604E-01 -1.247495E-12 -1.203398E-10  2.194713E-11  6.087809E+02 -1.408269E-09 *
+                       *  -2.406157E-11 -3.998941E-12  2.476249E-12  8.054925E-12 -1.408269E-09  7.263185E-18 *
+                       ***                                                                                  ***
+
+                                                     A-SET RIGID BODY MASS MATRIX
+                       ***                                                                                  ***
+                       *   1.817780E-03  0.000000E+00  0.000000E+00  0.000000E+00  9.088901E-01  0.000000E+00 *
+                       *   0.000000E+00  1.817780E-03  0.000000E+00 -9.088901E-01  0.000000E+00  0.000000E+00 *
+                       *   0.000000E+00  0.000000E+00  1.817780E-03  0.000000E+00  0.000000E+00  0.000000E+00 *
+                       *   0.000000E+00 -9.088901E-01  0.000000E+00  6.089564E+02  0.000000E+00  0.000000E+00 *
+                       *   9.088901E-01  0.000000E+00  0.000000E+00  0.000000E+00  6.089564E+02  0.000000E+00 *
+                       *   0.000000E+00  0.000000E+00  0.000000E+00  0.000000E+00  0.000000E+00  7.843362E-02 *
+                       ***                                                                                  ***
+
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    12
+                                                                                                                                    
+0                                                                                                                                   
+
+                                                    MODAL EFFECTIVE MASS FRACTION
+                                                (FOR TRANSLATIONAL DEGREES OF FREEDOM)
+
+    MODE    FREQUENCY                      T1                                  T2                                  T3
+     NO.                        FRACTION            SUM             FRACTION            SUM             FRACTION            SUM
+
+       1    6.255404E+01      2.205714E-26      2.205714E-26      7.394001E-01      7.394001E-01      9.165666E-34      9.165666E-34
+       2    2.534143E+02      6.159958E-01      6.159958E-01      2.651446E-26      7.394001E-01      4.519422E-33      5.435988E-33
+       3    1.102351E+03      2.667272E-29      6.159958E-01      1.419472E-01      8.813472E-01      4.708994E-32      5.252593E-32
+       4    1.485450E+03      2.033643E-01      8.193601E-01      8.152828E-30      8.813472E-01      1.658085E-32      6.910677E-32
+       5    1.759882E+03      3.749762E-33      8.193601E-01      4.627261E-32      8.813472E-01      8.477502E-01      8.477502E-01
+       6    3.318647E+03      3.848960E-29      8.193601E-01      4.153357E-02      9.228808E-01      5.520027E-32      8.477502E-01
+       7    3.818146E+03      7.945071E-02      8.988108E-01      7.450704E-29      9.228808E-01      3.745749E-26      8.477502E-01
+       8    5.240912E+03      3.164442E-21      8.988108E-01      1.716216E-23      9.228808E-01      9.143151E-02      9.391817E-01
+       9    6.364079E+03      1.464561E-20      8.988108E-01      2.219010E-02      9.450709E-01      6.277407E-19      9.391817E-01
+      10    6.754133E+03      4.663251E-02      9.454433E-01      8.967806E-21      9.450709E-01      2.679840E-17      9.391817E-01
+
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    13
+                                                                                                                                    
+0                                                                                                                                   
+
+                                                    MODAL EFFECTIVE MASS FRACTION
+                                                 (FOR ROTATIONAL DEGREES OF FREEDOM)
+
+    MODE    FREQUENCY                      R1                                  R2                                  R3
+     NO.                        FRACTION            SUM             FRACTION            SUM             FRACTION            SUM
+
+       1    6.255404E+01      9.999044E-01      9.999044E-01      3.475411E-26      3.475411E-26      6.325249E-36      6.325249E-36
+       2    2.534143E+02      3.554990E-26      9.999044E-01      9.722744E-01      9.722744E-01      3.227520E-34      3.290773E-34
+       3    1.102351E+03      9.224259E-05      9.999967E-01      1.726101E-29      9.722744E-01      1.616128E-35      3.452385E-34
+       4    1.485450E+03      1.103180E-30      9.999967E-01      2.421662E-02      9.964910E-01      2.154959E-32      2.189483E-32
+       5    1.759882E+03      7.247330E-33      9.999967E-01      6.295227E-33      9.964910E-01      5.240016E-38      2.189489E-32
+       6    3.318647E+03      2.936848E-06      9.999996E-01      1.444014E-29      9.964910E-01      4.794879E-29      4.797069E-29
+       7    3.818146E+03      3.545453E-32      9.999996E-01      2.744092E-03      9.992351E-01      3.337608E-27      3.385579E-27
+       8    5.240912E+03      1.563317E-26      9.999996E-01      1.928639E-23      9.992351E-01      4.703803E-19      4.703803E-19
+       9    6.364079E+03      2.687473E-07      9.999999E-01      3.511407E-23      9.992351E-01      5.054563E-18      5.524943E-18
+      10    6.754133E+03      3.146097E-24      9.999999E-01      4.768273E-04      9.997119E-01      8.707802E-17      9.260297E-17
+
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    14
+                                                                                                                                    
+0                                                                                                                                   
+
+                                                     MODAL PARTICIPATION FACTORS
+
+    MODE     FREQUENCY               T1                T2                T3                R1                R2                R3
+     NO.
+
+       1    6.255404E+01      6.332063E-15     -3.666152E-02      1.290781E-18      2.467586E+01      4.600406E-12     -7.043523E-19
+       2    2.534143E+02     -3.346259E-02     -6.942439E-15      2.866237E-18      4.652777E-12     -2.433254E+01      5.031362E-18
+       3    1.102351E+03     -2.201934E-16      1.606327E-02     -9.251981E-18     -2.370057E-01     -1.025242E-13     -1.125872E-18
+       4    1.485450E+03      1.922685E-02      1.217376E-16     -5.490022E-18     -2.591888E-14      3.840165E+00      4.111220E-17
+       5    1.759882E+03     -2.610793E-18     -9.171338E-18     -3.925587E-02      2.100787E-15     -1.957937E-15      6.410877E-20
+       6    3.318647E+03      2.645102E-16      8.689011E-03     -1.001708E-17     -4.228962E-02      9.377320E-14     -1.939277E-15
+       7    3.818146E+03     -1.201765E-02      3.680182E-16      8.251635E-15     -4.646532E-15     -1.292684E+00      1.617964E-14
+       8    5.240912E+03      2.398387E-12     -1.766268E-13     -1.289195E-02      3.085437E-12      1.083724E-10     -1.920771E-10
+       9    6.364079E+03     -5.159700E-12     -6.351119E-03      3.378009E-11      1.279279E-02     -1.462291E-10      6.296409E-10
+      10    6.754133E+03     -9.206935E-03      4.037512E-12      2.207116E-10     -4.377026E-11     -5.388572E-01      2.613397E-09
+
+                  TOTAL      -3.546033E-02     -1.826035E-02     -5.214782E-02      2.440936E+01     -2.232392E+01      3.050975E-09
+
+
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    15
+                                                                                                                                    
+0                                                                                                                                   
+
+                                                         MODAL EFFECTIVE MASS   
+
+    MODE     FREQUENCY               T1                T2                T3                R1                R2                R3
+     NO.
+
+       1    6.255404E+01      4.009503E-29      1.344067E-03      1.666117E-36      6.088982E+02      2.116374E-23      4.961121E-37
+       2    2.534143E+02      1.119745E-03      4.819746E-29      8.215315E-36      2.164834E-23      5.920727E+02      2.531461E-35
+       3    1.102351E+03      4.848514E-32      2.580288E-04      8.559916E-35      5.617171E-02      1.051120E-26      1.267587E-36
+       4    1.485450E+03      3.696716E-04      1.482005E-32      3.014034E-35      6.717884E-28      1.474686E+01      1.690213E-33
+       5    1.759882E+03      6.816242E-36      8.411344E-35      1.541024E-03      4.413308E-30      3.833519E-30      4.109934E-39
+       6    3.318647E+03      6.996564E-32      7.549891E-05      1.003420E-34      1.788412E-03      8.793414E-27      3.760797E-30
+       7    3.818146E+03      1.444239E-04      1.354374E-31      6.808948E-29      2.159026E-29      1.671033E+00      2.617807E-28
+       8    5.240912E+03      5.752260E-24      3.119704E-26      1.662024E-04      9.519919E-24      1.174457E-20      3.689362E-20
+       9    6.364079E+03      2.662251E-23      4.033672E-05      1.141095E-21      1.636554E-04      2.138294E-20      3.964476E-19
+      10    6.754133E+03      8.476765E-05      1.630150E-23      4.871359E-20      1.915836E-21      2.903670E-01      6.829844E-18
+
+                  TOTAL       1.718608E-03      1.717931E-03      1.707226E-03      6.089563E+02      6.087809E+02      7.263185E-18
+
+
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    16
+                                                                                                                                    
+0                                                                                                                                   
+
+                                                        MODAL EFFECTIVE WEIGHT  
+
+    MODE     FREQUENCY               T1                T2                T3                R1                R2                R3
+     NO.
+
+       1    6.255404E+01      1.548070E-26      5.189447E-01      6.432883E-34      2.350958E+05      8.171327E-21      1.915491E-34
+       2    2.534143E+02      4.323340E-01      1.860906E-26      3.171936E-33      8.358432E-21      2.285995E+05      9.773980E-33
+       3    1.102351E+03      1.872013E-29      9.962500E-02      3.304987E-32      2.168792E+01      4.058380E-24      4.894159E-34
+       4    1.485450E+03      1.427303E-01      5.722027E-30      1.163720E-32      2.593778E-25      5.693770E+03      6.525917E-31
+       5    1.759882E+03      2.631754E-33      3.247623E-32      5.949898E-01      1.703980E-27      1.480123E-27      1.586847E-36
+       6    3.318647E+03      2.701376E-29      2.915016E-02      3.874207E-32      6.905067E-01      3.395140E-24      1.452045E-27
+       7    3.818146E+03      5.576214E-02      5.229244E-29      2.628938E-26      8.336009E-27      6.451863E+02      1.010736E-25
+       8    5.240912E+03      2.220950E-21      1.204519E-23      6.417080E-02      3.675644E-21      4.534583E-18      1.424464E-17
+       9    6.364079E+03      1.027896E-20      1.557402E-02      4.405771E-19      6.318740E-02      8.255961E-18      1.530686E-16
+      10    6.754133E+03      3.272882E-02      6.294015E-21      1.880834E-17      7.397050E-19      1.121108E+02      2.637005E-15
+
+                  TOTAL       6.635553E-01      6.632939E-01      6.591606E-01      2.351183E+05      2.350506E+05      2.804319E-15
+
+
+ *** USER INFORMATION MESSAGE 2486 (GETMODE1)
+     GETMODE1 - best guess is that mode 1 is the first elastic mode
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    17
+                                                                                                                                    
+0                                                                                                                                   
+0 RESULTANTS ABOUT ORIGIN OF SUPERELEMENT BASIC COORDINATE SYSTEM IN SUPERELEMENT BASIC SYSTEM COORDINATES.
+
+0                                                  SPCFORCE RESULTANT       
+  SUBCASE/    LOAD
+  DAREA ID    TYPE       T1            T2            T3            R1            R2            R3
+0        1     FX   -1.182662E-08     ----          ----          ----       0.000000E+00  0.000000E+00                             
+               FY       ----       5.663448E+03     ----       0.000000E+00     ----       0.000000E+00                             
+               FZ       ----          ----       4.354666E-09  0.000000E+00  0.000000E+00     ----                                  
+               MX       ----          ----          ----      -3.811912E+06     ----          ----                                  
+               MY       ----          ----          ----          ----      -1.081382E-05     ----                                  
+               MZ       ----          ----          ----          ----          ----      -1.789555E-09                             
+             TOTALS -1.182662E-08  5.663448E+03  4.354666E-09 -3.811912E+06 -1.081382E-05 -1.789555E-09
+0        2     FX    8.483623E+04     ----          ----          ----       0.000000E+00  0.000000E+00                             
+               FY       ----       1.072639E-08     ----       0.000000E+00     ----       0.000000E+00                             
+               FZ       ----          ----      -2.501913E-09  0.000000E+00  0.000000E+00     ----                                  
+               MX       ----          ----          ----      -7.005258E-07     ----          ----                                  
+               MY       ----          ----          ----          ----       6.168923E+07     ----                                  
+               MZ       ----          ----          ----          ----          ----      -3.065723E-08                             
+             TOTALS  8.483623E+04  1.072639E-08 -2.501913E-09 -7.005258E-07  6.168923E+07 -3.065723E-08
+0        3     FX    8.593720E-09     ----          ----          ----       0.000000E+00  0.000000E+00                             
+               FY       ----      -7.706075E+05     ----       0.000000E+00     ----       0.000000E+00                             
+               FZ       ----          ----       2.140838E-09  0.000000E+00  0.000000E+00     ----                                  
+               MX       ----          ----          ----       1.136994E+07     ----          ----                                  
+               MY       ----          ----          ----          ----       2.153114E-06     ----                                  
+               MZ       ----          ----          ----          ----          ----       6.463063E-09                             
+             TOTALS  8.593720E-09 -7.706075E+05  2.140838E-09  1.136994E+07  2.153114E-06  6.463063E-09
+0        4     FX   -1.674880E+06     ----          ----          ----       0.000000E+00  0.000000E+00                             
+               FY       ----      -2.036967E-08     ----       0.000000E+00     ----       0.000000E+00                             
+               FZ       ----          ----       6.307328E-09  0.000000E+00  0.000000E+00     ----                                  
+               MX       ----          ----          ----       4.662502E-08     ----          ----                                  
+               MY       ----          ----          ----          ----      -3.345226E+08     ----                                  
+               MZ       ----          ----          ----          ----          ----      -2.755199E-07                             
+             TOTALS -1.674880E+06 -2.036967E-08  6.307328E-09  4.662502E-08 -3.345226E+08 -2.755199E-07
+0        5     FX   -7.584640E-11     ----          ----          ----       0.000000E+00  0.000000E+00                             
+               FY       ----       5.053762E-10     ----       0.000000E+00     ----       0.000000E+00                             
+               FZ       ----          ----       4.799895E+06  0.000000E+00  0.000000E+00     ----                                  
+               MX       ----          ----          ----      -6.237763E-09     ----          ----                                  
+               MY       ----          ----          ----          ----      -1.556918E-09     ----                                  
+               MZ       ----          ----          ----          ----          ----      -4.137039E-10                             
+             TOTALS -7.584640E-11  5.053762E-10  4.799895E+06 -6.237763E-09 -1.556918E-09 -4.137039E-10
+0        6     FX    4.027388E-07     ----          ----          ----       0.000000E+00  0.000000E+00                             
+               FY       ----      -3.777916E+06     ----       0.000000E+00     ----       0.000000E+00                             
+               FZ       ----          ----       5.476302E-07  0.000000E+00  0.000000E+00     ----                                  
+               MX       ----          ----          ----       1.838721E+07     ----          ----                                  
+               MY       ----          ----          ----          ----      -1.033140E-04     ----                                  
+               MZ       ----          ----          ----          ----          ----       1.488166E-05                             
+             TOTALS  4.027388E-07 -3.777916E+06  5.476302E-07  1.838721E+07 -1.033140E-04  1.488166E-05
+0        7     FX    6.916467E+06     ----          ----          ----       0.000000E+00  0.000000E+00                             
+               FY       ----       8.059821E-06     ----       0.000000E+00     ----       0.000000E+00                             
+               FZ       ----          ----      -1.159303E-04  0.000000E+00  0.000000E+00     ----                                  
+               MX       ----          ----          ----       8.683482E-05     ----          ----                                  
+               MY       ----          ----          ----          ----       7.439731E+08     ----                                  
+               MZ       ----          ----          ----          ----          ----      -1.442009E-04                             
+             TOTALS  6.916467E+06  8.059821E-06 -1.159303E-04  8.683482E-05  7.439731E+08 -1.442009E-04
+0        8     FX   -6.695865E-03     ----          ----          ----       0.000000E+00  0.000000E+00                             
+               FY       ----      -1.234053E-02     ----       0.000000E+00     ----       0.000000E+00                             
+               FZ       ----          ----       1.397952E+07  0.000000E+00  0.000000E+00     ----                                  
+               MX       ----          ----          ----      -1.107550E-01     ----          ----                                  
+               MY       ----          ----          ----          ----      -1.179152E+01     ----                                  
+               MZ       ----          ----          ----          ----          ----       9.868732E-01                             
+             TOTALS -6.695865E-03 -1.234053E-02  1.397952E+07 -1.107550E-01 -1.179152E+01  9.868732E-01
+0        9     FX    2.506588E-02     ----          ----          ----       0.000000E+00  0.000000E+00                             
+               FY       ----       1.015503E+07     ----       0.000000E+00     ----       0.000000E+00                             
+               FZ       ----          ----      -4.970998E-01  0.000000E+00  0.000000E+00     ----                                  
+               MX       ----          ----          ----      -2.045483E+07     ----          ----                                  
+               MY       ----          ----          ----          ----       1.961522E+01     ----                                  
+               MZ       ----          ----          ----          ----          ----      -4.654432E+00                             
+             TOTALS  2.506588E-02  1.015503E+07 -4.970998E-01 -2.045483E+07  1.961522E+01 -4.654432E+00
+0       10     FX    1.658113E+07     ----          ----          ----       0.000000E+00  0.000000E+00                             
+               FY       ----       1.961509E-01     ----       0.000000E+00     ----       0.000000E+00                             
+               FZ       ----          ----      -3.165287E+00  0.000000E+00  0.000000E+00     ----                                  
+               MX       ----          ----          ----       1.666537E+00     ----          ----                                  
+               MY       ----          ----          ----          ----       9.704488E+08     ----                                  
+               MZ       ----          ----          ----          ----          ----      -1.499756E+01                             
+             TOTALS  1.658113E+07  1.961509E-01 -3.165287E+00  1.666537E+00  9.704488E+08 -1.499756E+01
+ *** USER INFORMATION MESSAGE 4507 (GPFEV1)
+     IN SUBCASE 1      MODE 1
+     THERE ARE 1 BEAM ELEMENTS HAVING STRAIN ENERGY WHICH IS LESS THAN 1.000000E-03 PERCENT
+     OF THE TOTAL STRAIN ENERGY OF ALL ELEMENTS.
+ *** USER INFORMATION MESSAGE 4507 (GPFEV1)
+     IN SUBCASE 1      MODE 1
+     THERE ARE 1 BUSH ELEMENTS HAVING STRAIN ENERGY WHICH IS LESS THAN 1.000000E-03 PERCENT
+     OF THE TOTAL STRAIN ENERGY OF ALL ELEMENTS.
+ *** USER INFORMATION MESSAGE 4507 (GPFEV3)
+     IN SUBCASE 1      MODE 5
+     THERE ARE 1 BEAM ELEMENTS HAVING STRAIN ENERGY WHICH IS LESS THAN 1.000000E-03 PERCENT
+     OF THE TOTAL STRAIN ENERGY OF ALL ELEMENTS.
+ *** USER INFORMATION MESSAGE 4507 (GPFEV3)
+     IN SUBCASE 1      MODE 8
+     THERE ARE 1 BUSH ELEMENTS HAVING STRAIN ENERGY WHICH IS LESS THAN 1.000000E-03 PERCENT
+     OF THE TOTAL STRAIN ENERGY OF ALL ELEMENTS.
+ *** USER INFORMATION MESSAGE 4114 (OUTPX2)
+     DATA BLOCK OQG1     WRITTEN ON FORTRAN UNIT    12 IN BINARY (LTLEND) FORMAT USING NDDL DESCRIPTION FOR OQG1, TRL =
+                    101                 0              1680                 0                 0                 0                 2
+     NAME OF DATA BLOCK WRITTEN ON FORTRAN UNIT IS OQG1    
+        (MAXIMUM POSSIBLE FORTRAN RECORD SIZE =      131074 WORDS.)
+     (MAXIMUM SIZE OF FORTRAN RECORDS WRITTEN =         168 WORDS.)
+           (NUMBER OF FORTRAN RECORDS WRITTEN =         110 RECORDS.)
+           (TOTAL DATA WRITTEN FOR DATA BLOCK =        3245 WORDS.)
+ *** USER INFORMATION MESSAGE 4114 (OUTPX2)
+     DATA BLOCK OUG1     WRITTEN ON FORTRAN UNIT    12 IN BINARY (LTLEND) FORMAT USING NDDL DESCRIPTION FOR OUG1, TRL =
+                    101                 0              1680                 0                 0                 0                 2
+     NAME OF DATA BLOCK WRITTEN ON FORTRAN UNIT IS OUG1    
+        (MAXIMUM POSSIBLE FORTRAN RECORD SIZE =      131074 WORDS.)
+     (MAXIMUM SIZE OF FORTRAN RECORDS WRITTEN =         168 WORDS.)
+           (NUMBER OF FORTRAN RECORDS WRITTEN =         110 RECORDS.)
+           (TOTAL DATA WRITTEN FOR DATA BLOCK =        3245 WORDS.)
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    18
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  1.544794E+05
+      CYCLES =  6.255404E+01
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BEAM                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   7.723969E+04
+                   MODE               1            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   7.723969E+04
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BEAM     SUBTOTAL        4.478410E+03                 5.7981
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    19
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  1.544794E+05
+      CYCLES =  6.255404E+01
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BUSH                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   7.723969E+04
+                   MODE               1            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   7.723969E+04
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BUSH     SUBTOTAL        7.276128E+04                94.2019
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    20
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  2.535256E+06
+      CYCLES =  2.534143E+02
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BEAM                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   1.267628E+06
+                   MODE               2            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   1.267628E+06
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BEAM     SUBTOTAL        1.238185E+06                97.6773
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    21
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  2.535256E+06
+      CYCLES =  2.534143E+02
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BUSH                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   1.267628E+06
+                   MODE               2            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   1.267628E+06
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BUSH     SUBTOTAL        2.944284E+04                 2.3227
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    22
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  4.797326E+07
+      CYCLES =  1.102351E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BEAM                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   2.398663E+07
+                   MODE               3            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   2.398663E+07
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BEAM     SUBTOTAL        2.210369E+07                92.1501
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    23
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  4.797326E+07
+      CYCLES =  1.102351E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BUSH                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   2.398663E+07
+                   MODE               3            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   2.398663E+07
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BUSH     SUBTOTAL        1.882937E+06                 7.8499
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    24
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  8.711152E+07
+      CYCLES =  1.485450E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BEAM                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   4.355576E+07
+                   MODE               4            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   4.355576E+07
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BEAM     SUBTOTAL        3.807485E+07                87.4163
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    25
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  8.711152E+07
+      CYCLES =  1.485450E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BUSH                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   4.355576E+07
+                   MODE               4            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   4.355576E+07
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BUSH     SUBTOTAL        5.480906E+06                12.5837
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    26
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  1.222720E+08
+      CYCLES =  1.759882E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BEAM                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   6.113601E+07
+                   MODE               5            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   6.113601E+07
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BEAM     SUBTOTAL        3.064910E+05                 0.5013
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    27
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  1.222720E+08
+      CYCLES =  1.759882E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BUSH                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   6.113601E+07
+                   MODE               5            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   6.113601E+07
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BUSH     SUBTOTAL        6.082951E+07                99.4987
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    28
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  4.347924E+08
+      CYCLES =  3.318647E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BEAM                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   2.173962E+08
+                   MODE               6            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   2.173962E+08
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BEAM     SUBTOTAL        1.834353E+08                84.3783
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    29
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  4.347924E+08
+      CYCLES =  3.318647E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BUSH                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   2.173962E+08
+                   MODE               6            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   2.173962E+08
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BUSH     SUBTOTAL        3.396092E+07                15.6217
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    30
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  5.755257E+08
+      CYCLES =  3.818146E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BEAM                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   2.877629E+08
+                   MODE               7            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   2.877629E+08
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BEAM     SUBTOTAL        2.154891E+08                74.8843
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    31
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  5.755257E+08
+      CYCLES =  3.818146E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BUSH                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   2.877629E+08
+                   MODE               7            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   2.877629E+08
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BUSH     SUBTOTAL        7.227373E+07                25.1157
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    32
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  1.084360E+09
+      CYCLES =  5.240912E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BEAM                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   5.421800E+08
+                   MODE               8            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   5.421800E+08
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BEAM     SUBTOTAL        2.599728E+06                 0.4795
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    33
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  1.084360E+09
+      CYCLES =  5.240912E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BUSH                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   5.421800E+08
+                   MODE               8            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   5.421800E+08
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BUSH     SUBTOTAL        5.395803E+08                99.5205
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    34
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  1.598935E+09
+      CYCLES =  6.364079E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BEAM                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   7.994675E+08
+                   MODE               9            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   7.994675E+08
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BEAM     SUBTOTAL        5.781802E+08                72.3207
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    35
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  1.598935E+09
+      CYCLES =  6.364079E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BUSH                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   7.994675E+08
+                   MODE               9            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   7.994675E+08
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BUSH     SUBTOTAL        2.212873E+08                27.6793
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    36
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  1.800939E+09
+      CYCLES =  6.754133E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BEAM                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   9.004694E+08
+                   MODE              10            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   9.004694E+08
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BEAM     SUBTOTAL        5.542192E+08                61.5478
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    37
+                                                                                                                                    
+0                                                                                                                                   
+      EIGENVALUE =  1.800939E+09
+      CYCLES =  6.754133E+03
+                                           E L E M E N T   S T R A I N   E N E R G I E S
+ 
+                ELEMENT-TYPE = BUSH                * TOTAL ENERGY OF ALL ELEMENTS IN PROBLEM     =   9.004694E+08
+                   MODE              10            * TOTAL ENERGY OF ALL ELEMENTS IN SET      -1 =   9.004694E+08
+0
+                                    ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
+
+                        TYPE = BUSH     SUBTOTAL        3.462502E+08                38.4522
+ *** USER INFORMATION MESSAGE 4114 (OUTPX2)
+     DATA BLOCK OGPFB1   WRITTEN ON FORTRAN UNIT    12 IN BINARY (LTLEND) FORMAT USING NDDL DESCRIPTION FOR OGPFB1, TRL =
+                    101                 0                10                 0                 0                 0                 2
+     NAME OF DATA BLOCK WRITTEN ON FORTRAN UNIT IS OGPFB1  
+        (MAXIMUM POSSIBLE FORTRAN RECORD SIZE =      131074 WORDS.)
+     (MAXIMUM SIZE OF FORTRAN RECORDS WRITTEN =         620 WORDS.)
+           (NUMBER OF FORTRAN RECORDS WRITTEN =         110 RECORDS.)
+           (TOTAL DATA WRITTEN FOR DATA BLOCK =        7760 WORDS.)
+ *** USER INFORMATION MESSAGE 4114 (OUTPX2)
+     DATA BLOCK ONRGY1   WRITTEN ON FORTRAN UNIT    12 IN BINARY (LTLEND) FORMAT USING NDDL DESCRIPTION FOR ONRGY1, TRL =
+                    101                10                 0                 0                 0                 0                 2
+     NAME OF DATA BLOCK WRITTEN ON FORTRAN UNIT IS ONRGY1  
+        (MAXIMUM POSSIBLE FORTRAN RECORD SIZE =      131074 WORDS.)
+     (MAXIMUM SIZE OF FORTRAN RECORDS WRITTEN =         146 WORDS.)
+           (NUMBER OF FORTRAN RECORDS WRITTEN =         210 RECORDS.)
+           (TOTAL DATA WRITTEN FOR DATA BLOCK =        3964 WORDS.)
+ *** USER INFORMATION MESSAGE 4114 (OUTPX2)
+     DATA BLOCK OEF1X    WRITTEN ON FORTRAN UNIT    12 IN BINARY (LTLEND) FORMAT USING NDDL DESCRIPTION FOR OEF1X, TRL =
+                    101                63                 1                 8                26                 0                 2
+     NAME OF DATA BLOCK WRITTEN ON FORTRAN UNIT IS OEF1X   
+        (MAXIMUM POSSIBLE FORTRAN RECORD SIZE =      131074 WORDS.)
+     (MAXIMUM SIZE OF FORTRAN RECORDS WRITTEN =        1000 WORDS.)
+           (NUMBER OF FORTRAN RECORDS WRITTEN =         210 RECORDS.)
+           (TOTAL DATA WRITTEN FOR DATA BLOCK =       13805 WORDS.)
+ *** USER INFORMATION MESSAGE 4110 (OUTPX2)
+                                 END-OF-DATA SIMULATION ON FORTRAN UNIT    12
+                                 (MAXIMUM SIZE OF FORTRAN RECORDS WRITTEN =      1 WORDS.)
+                                       (NUMBER OF FORTRAN RECORDS WRITTEN =      1 RECORDS.)
+                                       (TOTAL DATA WRITTEN FOR EOF MARKER =      1 WORDS.)
+1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    38
+                                                                                                                                    
+0                                                                                                                                   
+ * * * *  D B D I C T   P R I N T  * * * *      SUBDMAP = PRTSUM  ,  DMAP STATEMENT NO.     75
+
+
+
+0                                   * * * *  A N A L Y S I S  S U M M A R Y  T A B L E  * * * *
+0 SEID  PEID PROJ VERS APRCH      SEMG SEMR SEKR SELG SELR MODES DYNRED SOLLIN SOLNL LOOPID DESIGN CYCLE SENSITIVITY
+ -------------------------------------------------------------------------------------------------------------------
+     0     0    1    1 '        '    T    T    T    T    T     T      F      T     F     -1            0           F
+0SEID = SUPERELEMENT ID.
+ PEID = PRIMARY SUPERELEMENT ID OF IMAGE SUPERELEMENT.
+ PROJ = PROJECT ID NUMBER.
+ VERS = VERSION ID.
+ APRCH = BLANK FOR STRUCTURAL ANALYSIS.  HEAT FOR HEAT TRANSFER ANALYSIS.
+ SEMG = STIFFNESS AND MASS MATRIX GENERATION STEP.
+ SEMR = MASS MATRIX REDUCTION STEP (INCLUDES EIGENVALUE SOLUTION FOR MODES).
+ SEKR = STIFFNESS MATRIX REDUCTION STEP.
+ SELG = LOAD MATRIX GENERATION STEP.
+ SELR = LOAD MATRIX REDUCTION STEP. 
+ MODES = T (TRUE) IF NORMAL MODES OR BUCKLING MODES CALCULATED.
+ DYNRED = T (TRUE) MEANS GENERALIZED DYNAMIC AND/OR COMPONENT MODE REDUCTION PERFORMED.
+ SOLLIN = T (TRUE) IF LINEAR SOLUTION EXISTS IN DATABASE.
+ LOOPID = THE LAST LOOPID VALUE USED IN THE NONLINEAR ANALYSIS.  USEFUL FOR RESTARTS.
+ SOLNL = T (TRUE) IF NONLINEAR SOLUTION EXISTS IN DATABASE.
+ DESIGN CYCLE = THE LAST DESIGN CYCLE (ONLY VALID IN OPTIMIZATION).
+ SENSITIVITY = SENSITIVITY MATRIX GENERATION FLAG.
+ 
+ No PARAM values were set in the Control File.
+ 
+1                                        * * * END OF JOB * * *
+ 
+ 
+ No Symbolic Replacement variables or values were specified.
+

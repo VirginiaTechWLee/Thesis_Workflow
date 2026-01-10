@@ -1,0 +1,597 @@
+name: HEEDS Programmatic Workflow4
+on:
+  workflow_dispatch:
+    inputs:
+      study_type:
+        description: 'Study type'
+        required: true
+        type: choice
+        options:
+          - sweep
+          - doe
+          - monte_carlo
+      num_cases:
+        description: 'Number of cases (72 for sweep, 100-5000 for doe/monte_carlo)'
+        required: true
+        type: string
+        default: '72'
+      study_name:
+        description: 'Study name (used for .heeds file and results folder)'
+        required: true
+        type: string
+        default: 'bolt_study'
+      skip_tests:
+        description: 'Skip pre-flight tests (not recommended)'
+        required: false
+        type: boolean
+        default: false
+      run_fresh_baseline:
+        description: 'Run fresh baseline before HEEDS (recommended for first run)'
+        required: false
+        type: boolean
+        default: true
+      insert_to_database:
+        description: 'Insert results into SQLite database'
+        required: false
+        type: boolean
+        default: true
+      reset_database:
+        description: 'DELETE existing database and start fresh (DESTRUCTIVE!)'
+        required: false
+        type: boolean
+        default: false
+      commit_results:
+        description: 'Commit result files to Git (disable for large studies)'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  # ==========================================================================
+  # STAGE 1: PRE-FLIGHT TESTS
+  # ==========================================================================
+  preflight-tests:
+    runs-on: self-hosted
+    if: ${{ github.event.inputs.skip_tests != 'true' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Bush Generator Tests
+        run: |
+          Write-Host "========================================"
+          Write-Host "RUNNING PRE-FLIGHT TESTS"
+          Write-Host "========================================"
+          & "${{ vars.PYTHON_PATH }}" tests/test_bush_generator.py
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Bush generator tests FAILED"
+            exit 1
+          }
+          Write-Host "Bush generator tests PASSED [PASS]"
+
+      - name: Run HEEDS Study Tests
+        run: |
+          & "${{ vars.PYTHON_PATH }}" heeds/tests/test_heeds_study.py
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "HEEDS study tests FAILED"
+            exit 1
+          }
+          Write-Host "HEEDS study tests PASSED [PASS]"
+
+      - name: Pre-flight Summary
+        run: |
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "ALL PRE-FLIGHT TESTS PASSED [PASS]"
+          Write-Host "========================================"
+          Write-Host "Safe to proceed with HEEDS study"
+
+  # ==========================================================================
+  # STAGE 2: RUN FRESH BASELINE (calls Workflow 1)
+  # ==========================================================================
+  run-baseline:
+    needs: preflight-tests
+    if: always() && (needs.preflight-tests.result == 'success' || needs.preflight-tests.result == 'skipped') && github.event.inputs.run_fresh_baseline == 'true'
+    uses: ./.github/workflows/baseline_workflow1.yml
+    with:
+      commit_results: false  # Don't commit yet - we'll commit everything together at the end
+
+  # ==========================================================================
+  # STAGE 3: GENERATE & RUN HEEDS STUDY
+  # ==========================================================================
+  heeds-study:
+    runs-on: self-hosted
+    needs: [preflight-tests, run-baseline]
+    if: always() && (needs.preflight-tests.result == 'success' || needs.preflight-tests.result == 'skipped') && (needs.run-baseline.result == 'success' || needs.run-baseline.result == 'skipped')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Pull latest changes (in case baseline was updated)
+        run: |
+          try { git pull origin main --rebase } catch { Write-Host "No changes to pull" }
+
+      - name: Validate environment variables
+        run: |
+          $missing = @()
+          if (-not "${{ vars.PYTHON_PATH }}") { $missing += "PYTHON_PATH" }
+          if (-not "${{ vars.NASTRAN_PATH }}") { $missing += "NASTRAN_PATH" }
+          if (-not "${{ vars.SCRATCH_DIR }}") { $missing += "SCRATCH_DIR" }
+          if (-not "${{ vars.HEEDS_PATH }}") { $missing += "HEEDS_PATH" }
+          if ($missing.Count -gt 0) {
+            Write-Error "Missing required GitHub variables: $($missing -join ', ')"
+            exit 1
+          }
+          Write-Host "All required variables configured [PASS]"
+
+      - name: Validate executables exist
+        run: |
+          $executables = @(
+            "${{ vars.HEEDS_PATH }}",
+            "${{ vars.NASTRAN_PATH }}",
+            "${{ vars.PYTHON_PATH }}"
+          )
+          foreach ($exe in $executables) {
+            if (-not (Test-Path $exe)) {
+              Write-Error "Executable not found: $exe"
+              exit 1
+            }
+          }
+          Write-Host "All executables validated [PASS]"
+
+      - name: Validate baseline exists
+        run: |
+          if (-not (Test-Path "baseline/randombeamx.pch")) {
+            Write-Error "Baseline PCH not found. Run with run_fresh_baseline=true or run Workflow 1 first."
+            exit 1
+          }
+          if (-not (Test-Path "baseline/Bush.blk")) {
+            Write-Error "Baseline Bush.blk not found."
+            exit 1
+          }
+          Write-Host "Baseline files validated [PASS]"
+          Write-Host "  - baseline/randombeamx.pch"
+          Write-Host "  - baseline/Bush.blk"
+
+      - name: Setup scratch directory
+        run: |
+          if (-not (Test-Path "${{ vars.SCRATCH_DIR }}")) {
+            mkdir "${{ vars.SCRATCH_DIR }}"
+          }
+          $testFile = "${{ vars.SCRATCH_DIR }}\test_$([guid]::NewGuid()).tmp"
+          "test" | Out-File $testFile
+          Remove-Item $testFile
+          Write-Host "Scratch directory ready [PASS]"
+
+      - name: Display study configuration
+        run: |
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "HEEDS STUDY CONFIGURATION"
+          Write-Host "========================================"
+          Write-Host "Study Name:      ${{ github.event.inputs.study_name }}"
+          Write-Host "Study Type:      ${{ github.event.inputs.study_type }}"
+          Write-Host "Num Cases:       ${{ github.event.inputs.num_cases }}"
+          Write-Host "Fresh Baseline:  ${{ github.event.inputs.run_fresh_baseline }}"
+          Write-Host "Database:        ${{ github.event.inputs.insert_to_database }}"
+          Write-Host "Reset DB:        ${{ github.event.inputs.reset_database }}"
+          Write-Host "Commit Results:  ${{ github.event.inputs.commit_results }}"
+          Write-Host "========================================"
+          
+          if ("${{ github.event.inputs.reset_database }}" -eq "true") {
+            Write-Host ""
+            Write-Host "[WARN]  WARNING: Database will be DELETED and recreated!"
+            Write-Host ""
+          }
+
+      - name: Reset database (if requested)
+        if: ${{ github.event.inputs.reset_database == 'true' }}
+        run: |
+          $dbPath = "heeds/database/psd_results.db"
+          if (Test-Path $dbPath) {
+            Write-Host "Deleting existing database: $dbPath"
+            Remove-Item $dbPath -Force
+            Write-Host "Database deleted [PASS]"
+          } else {
+            Write-Host "No existing database found - will create fresh"
+          }
+          
+          # Initialize fresh database with schema
+          Write-Host "Initializing fresh database..."
+          & "${{ vars.PYTHON_PATH }}" -c @"
+          import sqlite3
+          import os
+          
+          db_path = 'heeds/database/psd_results.db'
+          schema_path = 'heeds/database/schema.sql'
+          
+          # Create database directory if needed
+          os.makedirs(os.path.dirname(db_path), exist_ok=True)
+          
+          # Create database
+          conn = sqlite3.connect(db_path)
+          
+          # Load and execute schema
+          if os.path.exists(schema_path):
+              with open(schema_path, 'r') as f:
+                  conn.executescript(f.read())
+              print(f'Database initialized from {schema_path}')
+          else:
+              print('WARNING: schema.sql not found')
+          
+          conn.close()
+          print(f'Fresh database created: {db_path}')
+          "@
+          
+          Write-Host "Fresh database ready [PASS]"
+
+      - name: Insert baseline into database
+        if: ${{ github.event.inputs.insert_to_database == 'true' }}
+        run: |
+          Write-Host "========================================"
+          Write-Host "INSERTING BASELINE AS CASE 0"
+          Write-Host "========================================"
+          
+          Write-Host "Baseline files:"
+          Write-Host "  PCH: baseline/randombeamx.pch"
+          Write-Host "  Bush: baseline/Bush.blk"
+          Write-Host "Inserting into study: ${{ github.event.inputs.study_name }}"
+          
+          & "${{ vars.PYTHON_PATH }}" heeds/database/Pch_TO_Database.py `
+            --pch baseline/randombeamx.pch `
+            --study "${{ github.event.inputs.study_name }}" --study_type "${{ github.event.inputs.study_type }}" `
+            --case_name "baseline" `
+            --case_number 0 `
+            --is_baseline `
+            --bush_file baseline/Bush.blk `
+            --db_path heeds/database/psd_results.db
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to insert baseline into database"
+            exit 1
+          }
+          
+          Write-Host ""
+          Write-Host "Baseline inserted as case 0 [PASS]"
+          Write-Host "========================================"
+
+      - name: Show existing database info
+        if: ${{ github.event.inputs.insert_to_database == 'true' && github.event.inputs.reset_database != 'true' }}
+        run: |
+          $dbPath = "heeds/database/psd_results.db"
+          if (Test-Path $dbPath) {
+            Write-Host "Existing database found. Current contents:"
+            & "${{ vars.PYTHON_PATH }}" -c @"
+          import sqlite3
+          conn = sqlite3.connect('heeds/database/psd_results.db')
+          cursor = conn.cursor()
+          
+          # Check studies
+          try:
+              cursor.execute('SELECT study_name, study_type, num_cases, status FROM studies')
+              studies = cursor.fetchall()
+              if studies:
+                  print('Existing studies:')
+                  for s in studies:
+                      print(f'  - {s[0]} ({s[1]}, {s[2]} cases, {s[3]})')
+              else:
+                  print('No existing studies in database')
+          except:
+              print('Database exists but may be empty or have different schema')
+          
+          conn.close()
+          "@
+          } else {
+            Write-Host "No existing database - will create new one"
+          }
+
+      - name: Create timestamped results directory
+        id: setup
+        run: |
+          $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+          $studyName = "${{ github.event.inputs.study_name }}"
+          $resultsDir = "heeds/results/${studyName}_${timestamp}"
+          mkdir $resultsDir -Force
+
+          echo "results_dir=$resultsDir" >> $env:GITHUB_OUTPUT
+          echo "timestamp=$timestamp" >> $env:GITHUB_OUTPUT
+          echo "heeds_file=${studyName}.heeds" >> $env:GITHUB_OUTPUT
+
+          Write-Host "Results directory: $resultsDir"
+
+      - name: Generate HEEDS project programmatically
+        run: |
+          $resultsDir = "${{ steps.setup.outputs.results_dir }}"
+          $heedsFile = "${{ steps.setup.outputs.heeds_file }}"
+          $studyType = "${{ github.event.inputs.study_type }}"
+          $numCases = "${{ github.event.inputs.num_cases }}"
+
+          Write-Host "Generating HEEDS project..."
+          Write-Host "  Type: $studyType"
+          Write-Host "  Cases: $numCases"
+          Write-Host "  Output: $resultsDir\$heedsFile"
+
+          # Generate the .heeds file
+          & "C:\HEEDS\MDO\Ver2410\Python3\python.exe" heeds/scripts/generate_heeds_study.py `
+            --study $studyType `
+            --cases $numCases `
+            --output "$resultsDir\$heedsFile" `
+            --templates templates
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to generate HEEDS project"
+            exit 1
+          }
+
+          # Also save config for reference
+          & "C:\HEEDS\MDO\Ver2410\Python3\python.exe" heeds/scripts/generate_heeds_study.py `
+            --config-only `
+            --study $studyType `
+            --cases $numCases `
+            --output "$resultsDir\study_config.json"
+
+          Write-Host "HEEDS project generated [PASS]"
+
+      - name: Copy required files to results directory
+        run: |
+          $resultsDir = "${{ steps.setup.outputs.results_dir }}"
+
+          # Copy templates
+          copy templates\Fixed_base_beam.dat "$resultsDir\"
+          copy templates\Recoveries.blk "$resultsDir\"
+
+          if (Test-Path templates\RandomBeamX.dat) {
+            copy templates\RandomBeamX.dat "$resultsDir\"
+          } elseif (Test-Path templates\randombeamx.dat) {
+            copy templates\randombeamx.dat "$resultsDir\"
+          }
+
+          # Copy baseline Bush.blk (will be modified by HEEDS for each case)
+          copy baseline\Bush.blk "$resultsDir\"
+
+          # Copy post-processing script
+          copy Scripts\Pch_TO_CSV2.py "$resultsDir\"
+
+          Write-Host "Files copied to results directory [PASS]"
+          dir "$resultsDir\"
+
+      - name: Run HEEDS study
+        id: heeds_run
+        run: |
+          $resultsDir = "${{ steps.setup.outputs.results_dir }}"
+          $heedsFile = "${{ steps.setup.outputs.heeds_file }}"
+
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "STARTING HEEDS STUDY"
+          Write-Host "========================================"
+          Write-Host "This may take a while for large studies..."
+          Write-Host ""
+
+          $startTime = Get-Date
+
+          cd $resultsDir
+          & "${{ vars.HEEDS_PATH }}" $heedsFile
+          $exitCode = $LASTEXITCODE
+          cd ..\..\..
+
+          $endTime = Get-Date
+          $duration = $endTime - $startTime
+
+          echo "duration=$($duration.TotalMinutes)" >> $env:GITHUB_OUTPUT
+          echo "exit_code=$exitCode" >> $env:GITHUB_OUTPUT
+
+          Write-Host ""
+          Write-Host "HEEDS completed in $($duration.TotalMinutes.ToString('F1')) minutes"
+
+          if ($exitCode -ne 0) {
+            Write-Host "WARNING: HEEDS exited with code $exitCode"
+          }
+
+      - name: Check HEEDS outputs
+        run: |
+          $resultsDir = "${{ steps.setup.outputs.results_dir }}"
+
+          Write-Host "=== HEEDS Output Files ==="
+          dir "$resultsDir\" -Recurse -File | Select-Object FullName, Length
+
+          # Check for error indicators
+          $errors = Get-ChildItem -Path $resultsDir -Recurse -Name "*error*","*fail*" -ErrorAction SilentlyContinue
+          if ($errors) {
+            Write-Host ""
+            Write-Host "=== WARNING: Potential error files found ==="
+            $errors | ForEach-Object { Write-Host "  $_" }
+          }
+
+          # Show last lines of any log files
+          $logs = Get-ChildItem -Path $resultsDir -Recurse -Filter "*.log" -ErrorAction SilentlyContinue
+          foreach ($log in $logs) {
+            Write-Host ""
+            Write-Host "=== Log: $($log.Name) (last 20 lines) ==="
+            Get-Content $log.FullName -Tail 20
+          }
+
+      - name: Extract results to CSV
+        run: |
+          $resultsDir = "${{ steps.setup.outputs.results_dir }}"
+
+          # Find all PCH files and process them
+          $pchFiles = Get-ChildItem -Path $resultsDir -Recurse -Filter "*.pch" -ErrorAction SilentlyContinue
+
+          if ($pchFiles) {
+            Write-Host "Found $($pchFiles.Count) PCH file(s) to process"
+            foreach ($pch in $pchFiles) {
+              Write-Host "Processing: $($pch.Name)"
+              $pchDir = $pch.DirectoryName
+              copy $pch.FullName "$pchDir\randombeamx.pch" -Force -ErrorAction SilentlyContinue
+
+              Push-Location $pchDir
+              & "${{ vars.PYTHON_PATH }}" Pch_TO_CSV2.py
+              Pop-Location
+            }
+          } else {
+            Write-Host "No PCH files found - HEEDS may have failed"
+          }
+
+      - name: Insert HEEDS results to database
+        if: ${{ github.event.inputs.insert_to_database == 'true' }}
+        run: |
+          $resultsDir = "${{ steps.setup.outputs.results_dir }}"
+          $studyName = "${{ github.event.inputs.study_name }}"
+          $studyType = "${{ github.event.inputs.study_type }}"
+
+          Write-Host "========================================"
+          Write-Host "INSERTING HEEDS RESULTS TO DATABASE"
+          Write-Host "========================================"
+
+          # Check if database script exists
+          if (Test-Path "heeds/database/Pch_TO_Database.py") {
+            & "${{ vars.PYTHON_PATH }}" heeds/database/Pch_TO_Database.py `
+              --results_dir "$resultsDir" `
+              --study_name "$studyName" `
+              --study_type "$studyType" `
+              --db_path heeds/database/psd_results.db
+            
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "WARNING: Database insert may have failed (exit code: $LASTEXITCODE)"
+            } else {
+              Write-Host "Database insert completed [PASS]"
+            }
+          } else {
+            Write-Host "WARNING: Pch_TO_Database.py not found - skipping database insert"
+          }
+
+      - name: Show database summary
+        if: ${{ github.event.inputs.insert_to_database == 'true' }}
+        run: |
+          & "${{ vars.PYTHON_PATH }}" -c @"
+          import sqlite3
+          import os
+          
+          db_path = 'heeds/database/psd_results.db'
+          if not os.path.exists(db_path):
+              print('Database not found')
+              exit(0)
+          
+          conn = sqlite3.connect(db_path)
+          cursor = conn.cursor()
+          
+          print('=== DATABASE SUMMARY ===')
+          
+          # Studies
+          cursor.execute('SELECT COUNT(*) FROM studies')
+          print(f'Studies: {cursor.fetchone()[0]}')
+          
+          # Cases
+          try:
+              cursor.execute('SELECT COUNT(*) FROM cases')
+              print(f'Total cases: {cursor.fetchone()[0]}')
+          except:
+              pass
+          
+          # Check baseline exists
+          try:
+              cursor.execute('SELECT case_id, case_name FROM cases WHERE is_baseline = 1')
+              baseline = cursor.fetchone()
+              if baseline:
+                  print(f'Baseline: case_id={baseline[0]}, name={baseline[1]} [PASS]')
+              else:
+                  print('Baseline: NOT FOUND [WARN]')
+          except:
+              pass
+          
+          # PSD data rows
+          try:
+              cursor.execute('SELECT COUNT(*) FROM psd_data')
+              print(f'PSD data rows: {cursor.fetchone()[0]:,}')
+          except:
+              pass
+          
+          # Database file size
+          size_mb = os.path.getsize(db_path) / (1024*1024)
+          print(f'Database size: {size_mb:.2f} MB')
+          
+          conn.close()
+          "@
+
+      - name: Generate study summary
+        run: |
+          $resultsDir = "${{ steps.setup.outputs.results_dir }}"
+          $duration = "${{ steps.heeds_run.outputs.duration }}"
+
+          $summary = @"
+          # HEEDS Study Summary
+
+          **Study Name:** ${{ github.event.inputs.study_name }}
+          **Study Type:** ${{ github.event.inputs.study_type }}
+          **Num Cases:** ${{ github.event.inputs.num_cases }}
+          **Fresh Baseline:** ${{ github.event.inputs.run_fresh_baseline }}
+          **Timestamp:** ${{ steps.setup.outputs.timestamp }}
+          **Duration:** $duration minutes
+          **Exit Code:** ${{ steps.heeds_run.outputs.exit_code }}
+          **Database:** ${{ github.event.inputs.insert_to_database }}
+          **Reset DB:** ${{ github.event.inputs.reset_database }}
+
+          ## Cases
+          - Case 0: Baseline (fresh run: ${{ github.event.inputs.run_fresh_baseline }})
+          - Cases 1-${{ github.event.inputs.num_cases }}: HEEDS parametric study
+
+          ## Files Generated
+          $(Get-ChildItem -Path $resultsDir -Recurse -File | Select-Object -ExpandProperty Name | ForEach-Object { "- $_" })
+          "@
+
+          $summary | Out-File "$resultsDir\SUMMARY.md"
+          Write-Host $summary
+
+      - name: Commit all results to Git
+        if: ${{ github.event.inputs.commit_results == 'true' }}
+        run: |
+          $resultsDir = "${{ steps.setup.outputs.results_dir }}"
+
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+          # Add baseline files (may have been updated by Workflow 1)
+          git add -f baseline\* -ErrorAction SilentlyContinue
+          git add -f Bush.blk -ErrorAction SilentlyContinue
+          
+          # Add HEEDS results
+          git add -f "$resultsDir\*"
+          
+          # Note: Database is NOT committed (it's in .gitignore)
+          
+          $status = git status --porcelain
+          if ($status) {
+            git commit -m "Workflow4: ${{ github.event.inputs.study_name }} (${{ github.event.inputs.study_type }}, ${{ github.event.inputs.num_cases }} cases + baseline) - ${{ steps.setup.outputs.timestamp }}"
+            git push
+            Write-Host "Results committed to Git [PASS]"
+          } else {
+            Write-Host "No changes to commit"
+          }
+
+      - name: Skip commit notice
+        if: ${{ github.event.inputs.commit_results != 'true' }}
+        run: |
+          Write-Host ""
+          Write-Host "[WARN]  Results NOT committed to Git (commit_results=false)"
+          Write-Host "Results are available locally at: ${{ steps.setup.outputs.results_dir }}"
+          Write-Host ""
+
+      - name: Final Summary
+        run: |
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "WORKFLOW 4 COMPLETE"
+          Write-Host "========================================"
+          Write-Host "Study:          ${{ github.event.inputs.study_name }}"
+          Write-Host "Type:           ${{ github.event.inputs.study_type }}"
+          Write-Host "Cases:          ${{ github.event.inputs.num_cases }} + baseline (case 0)"
+          Write-Host "Fresh Baseline: ${{ github.event.inputs.run_fresh_baseline }}"
+          Write-Host "Results:        ${{ steps.setup.outputs.results_dir }}"
+          Write-Host "Duration:       ${{ steps.heeds_run.outputs.duration }} minutes"
+          Write-Host "Database:       ${{ github.event.inputs.insert_to_database }}"
+          Write-Host "Committed:      ${{ github.event.inputs.commit_results }}"
+          Write-Host "========================================"
