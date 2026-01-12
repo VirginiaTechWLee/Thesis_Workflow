@@ -73,9 +73,13 @@ jobs:
           Write-Host "========================================================"
           Write-Host "  PROJECT PARAMETERS"
           Write-Host "========================================================"
-          Write-Host "Project: $project"
+          Write-Host "Selected project: $project"
           Write-Host "Expected designs: $designs"
-          Write-Host "Timeout: $timeoutSec seconds ($timeoutMin minutes)"
+          Write-Host ""
+          Write-Host "Timeout settings:"
+          Write-Host "  - Minutes: $timeoutMin"
+          Write-Host "  - Seconds: $timeoutSec"
+          Write-Host "  - Hours: $([math]::Round($timeoutMin/60, 2))"
           Write-Host "========================================================"
 
           echo "expected_designs=$designs" >> $env:GITHUB_OUTPUT
@@ -120,25 +124,43 @@ jobs:
           Write-Host "  FOLDER MANAGEMENT"
           Write-Host "========================================================"
           Write-Host "Study folder: $studyFolder"
-          Write-Host "Mode: $mode"
+          Write-Host "Selected mode: $mode"
+          Write-Host ""
 
           if (Test-Path $studyFolder) {
-            Write-Host "WARNING: Folder exists!"
+            # Get existing folder info
+            $folderInfo = Get-Item $studyFolder
+            $existingDesigns = (Get-ChildItem "$studyFolder\HEEDS_0\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+            $completedDesigns = (Get-ChildItem "$studyFolder\HEEDS_0\Design*\*.f06" -ErrorAction SilentlyContinue | Measure-Object).Count
+            
+            Write-Host "[EXISTS] Folder already exists!"
+            Write-Host "  Created: $($folderInfo.CreationTime)"
+            Write-Host "  Modified: $($folderInfo.LastWriteTime)"
+            Write-Host "  Design folders: $existingDesigns"
+            Write-Host "  Completed designs (with .f06): $completedDesigns"
+            Write-Host ""
 
             if ($mode -eq "overwrite_existing") {
-              Write-Host "Removing existing folder..."
+              Write-Host "[ACTION] OVERWRITE mode selected"
+              Write-Host "[DELETING] Removing existing folder..."
               Remove-Item -Path $studyFolder -Recurse -Force
-              Write-Host "SUCCESS: Folder removed"
+              Write-Host "[DONE] Folder deleted successfully"
+              Write-Host "[NEXT] HEEDS will create fresh folder"
             }
             elseif ($mode -eq "skip_if_exists") {
-              Write-Host "Skipping - folder exists"
+              Write-Host "[ACTION] SKIP mode selected"
+              Write-Host "[SKIP] Folder exists - skipping this run"
+              Write-Host "[EXIT] Workflow will exit now"
+              Write-Host "========================================================"
               exit 0
             }
             else {
-              Write-Host "Will create new timestamped folder"
+              Write-Host "[ACTION] CREATE_NEW_TIMESTAMP mode selected"
+              Write-Host "[INFO] Will create new timestamped folder alongside existing one"
             }
           } else {
-            Write-Host "Folder does not exist - will be created by HEEDS"
+            Write-Host "[NOT EXISTS] Folder does not exist"
+            Write-Host "[INFO] HEEDS will create a new folder when study starts"
           }
           Write-Host "========================================================"
 
@@ -340,6 +362,8 @@ jobs:
           Write-Host "========================================================"
           Write-Host "  MONITORING PROGRESS"
           Write-Host "========================================================"
+          Write-Host "Tracking COMPLETED designs (with .f06 results files)"
+          Write-Host ""
 
           $lastCount = 0
           $stallTime = 0
@@ -348,24 +372,28 @@ jobs:
           while ($true) {
             $elapsed = ((Get-Date) - $startTime).TotalSeconds
 
-            # Count designs
-            $designs = (Get-ChildItem "$heedsFolder\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+            # Count COMPLETED designs (those with .f06 result files)
+            $completed = (Get-ChildItem "$heedsFolder\Design*\*.f06" -ErrorAction SilentlyContinue | Measure-Object).Count
+            
+            # Also count total folders for reference
+            $folders = (Get-ChildItem "$heedsFolder\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
 
-            # Calculate progress
-            $pct = [math]::Round(($designs / $expectedDesigns) * 100, 1)
+            # Calculate progress based on COMPLETED designs
+            $pct = [math]::Round(($completed / $expectedDesigns) * 100, 1)
             $barLen = 40
-            $filled = [math]::Min($barLen, [math]::Floor($barLen * $designs / $expectedDesigns))
+            $filled = [math]::Min($barLen, [math]::Floor($barLen * $completed / $expectedDesigns))
             $bar = ("#" * $filled) + ("-" * ($barLen - $filled))
 
-            Write-Host "[$bar] $designs/$expectedDesigns ($pct%) - Elapsed: $([int]$elapsed)s"
+            Write-Host "[$bar] $completed/$expectedDesigns completed ($pct%) | Folders: $folders | Elapsed: $([int]$elapsed)s"
 
-            # Check completion
-            if ($designs -ge $expectedDesigns) {
+            # Check completion based on COMPLETED designs (with .f06 files)
+            if ($completed -ge $expectedDesigns) {
               Write-Host ""
               Write-Host "========================================================"
               Write-Host "  STUDY COMPLETE!"
               Write-Host "========================================================"
-              Write-Host "Total designs: $designs"
+              Write-Host "Total completed designs: $completed"
+              Write-Host "Total folders: $folders"
               Write-Host "Total time: $([int]$elapsed) seconds ($([math]::Round($elapsed/60, 1)) minutes)"
               break
             }
@@ -374,25 +402,27 @@ jobs:
             if ($elapsed -gt $timeoutSec) {
               Write-Host ""
               Write-Host "ERROR: Study timed out after $timeoutSec seconds"
-              Write-Host "Completed: $designs / $expectedDesigns designs"
+              Write-Host "Completed: $completed / $expectedDesigns designs (with .f06 files)"
+              Write-Host "Folders created: $folders"
               Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
               Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
               exit 1
             }
 
-            # Check for stall
-            if ($designs -eq $lastCount) {
+            # Check for stall (no new completed designs for 10 minutes)
+            if ($completed -eq $lastCount) {
               $stallTime += 15
               if ($stallTime -ge $maxStall) {
                 Write-Host ""
-                Write-Host "ERROR: Study stalled - no progress for $maxStall seconds"
+                Write-Host "ERROR: Study stalled - no new completed designs for $maxStall seconds"
+                Write-Host "Completed: $completed / $expectedDesigns"
                 Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
                 Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
                 exit 1
               }
             } else {
               $stallTime = 0
-              $lastCount = $designs
+              $lastCount = $completed
             }
 
             Start-Sleep -Seconds 15
@@ -433,9 +463,12 @@ jobs:
           Write-Host "========================================================"
 
           if (Test-Path $studyFolder) {
-            $designs = (Get-ChildItem "$studyFolder\HEEDS_0\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+            $folders = (Get-ChildItem "$studyFolder\HEEDS_0\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+            $completed = (Get-ChildItem "$studyFolder\HEEDS_0\Design*\*.f06" -ErrorAction SilentlyContinue | Measure-Object).Count
+            
             Write-Host "Study folder: $studyFolder"
-            Write-Host "Designs completed: $designs"
+            Write-Host "Design folders created: $folders"
+            Write-Host "Designs COMPLETED (with .f06): $completed"
 
             # Check for results file
             $resFile = "$studyFolder\HEEDS_0\HEEDS0.res"
@@ -454,4 +487,4 @@ jobs:
           } else {
             Write-Host "WARNING: Study folder not found"
           }
-          Write-Host "========================================================"
+          Write-Host "========================================================""
