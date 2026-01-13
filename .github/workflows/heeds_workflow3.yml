@@ -362,9 +362,11 @@ jobs:
           Write-Host "========================================================"
           Write-Host "  MONITORING PROGRESS"
           Write-Host "========================================================"
-          Write-Host "Tracking COMPLETED designs (with .f06 results files)"
+          Write-Host "Tracking COMPLETED designs in POST_0 folder"
+          Write-Host "  POST_0 path: $studyFolder\POST_0"
           Write-Host ""
 
+          $postFolder = "$studyFolder\POST_0"
           $lastCount = 0
           $stallTime = 0
           $maxStall = 600  # 10 minutes stall timeout
@@ -372,28 +374,28 @@ jobs:
           while ($true) {
             $elapsed = ((Get-Date) - $startTime).TotalSeconds
 
-            # Count COMPLETED designs (those with .f06 result files)
-            $completed = (Get-ChildItem "$heedsFolder\Design*\*.f06" -ErrorAction SilentlyContinue | Measure-Object).Count
+            # Count COMPLETED designs in POST_0 (post-processed results)
+            $completed = (Get-ChildItem "$postFolder\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
             
-            # Also count total folders for reference
-            $folders = (Get-ChildItem "$heedsFolder\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+            # Also count HEEDS_0 working folders for reference
+            $workingFolders = (Get-ChildItem "$heedsFolder\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
 
-            # Calculate progress based on COMPLETED designs
+            # Calculate progress based on POST_0 completed designs
             $pct = [math]::Round(($completed / $expectedDesigns) * 100, 1)
             $barLen = 40
             $filled = [math]::Min($barLen, [math]::Floor($barLen * $completed / $expectedDesigns))
             $bar = ("#" * $filled) + ("-" * ($barLen - $filled))
 
-            Write-Host "[$bar] $completed/$expectedDesigns completed ($pct%) | Folders: $folders | Elapsed: $([int]$elapsed)s"
+            Write-Host "[$bar] $completed/$expectedDesigns POST_0 ($pct%) | HEEDS_0: $workingFolders | Elapsed: $([int]$elapsed)s"
 
-            # Check completion based on COMPLETED designs (with .f06 files)
+            # Check completion based on POST_0 designs
             if ($completed -ge $expectedDesigns) {
               Write-Host ""
               Write-Host "========================================================"
               Write-Host "  STUDY COMPLETE!"
               Write-Host "========================================================"
-              Write-Host "Total completed designs: $completed"
-              Write-Host "Total folders: $folders"
+              Write-Host "Completed designs (POST_0): $completed"
+              Write-Host "Working folders (HEEDS_0): $workingFolders"
               Write-Host "Total time: $([int]$elapsed) seconds ($([math]::Round($elapsed/60, 1)) minutes)"
               break
             }
@@ -402,8 +404,8 @@ jobs:
             if ($elapsed -gt $timeoutSec) {
               Write-Host ""
               Write-Host "ERROR: Study timed out after $timeoutSec seconds"
-              Write-Host "Completed: $completed / $expectedDesigns designs (with .f06 files)"
-              Write-Host "Folders created: $folders"
+              Write-Host "Completed (POST_0): $completed / $expectedDesigns"
+              Write-Host "Working folders (HEEDS_0): $workingFolders"
               Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
               Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
               exit 1
@@ -415,7 +417,7 @@ jobs:
               if ($stallTime -ge $maxStall) {
                 Write-Host ""
                 Write-Host "ERROR: Study stalled - no new completed designs for $maxStall seconds"
-                Write-Host "Completed: $completed / $expectedDesigns"
+                Write-Host "Completed (POST_0): $completed / $expectedDesigns"
                 Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
                 Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
                 exit 1
@@ -463,18 +465,34 @@ jobs:
           Write-Host "========================================================"
 
           if (Test-Path $studyFolder) {
-            $folders = (Get-ChildItem "$studyFolder\HEEDS_0\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
-            $completed = (Get-ChildItem "$studyFolder\HEEDS_0\Design*\*.f06" -ErrorAction SilentlyContinue | Measure-Object).Count
+            # Count POST_0 completed designs (final results)
+            $completedPOST = (Get-ChildItem "$studyFolder\POST_0\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+            
+            # Count HEEDS_0 working folders
+            $workingFolders = (Get-ChildItem "$studyFolder\HEEDS_0\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+            
+            # Count PCH files in POST_0
+            $pchFiles = (Get-ChildItem "$studyFolder\POST_0\Design*\Analysis_1\*.pch" -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
+            
+            # Count CSV result files in POST_0
+            $csvFiles = (Get-ChildItem "$studyFolder\POST_0\Design*\Analysis_1\*_results*.csv" -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
             
             Write-Host "Study folder: $studyFolder"
-            Write-Host "Design folders created: $folders"
-            Write-Host "Designs COMPLETED (with .f06): $completed"
+            Write-Host ""
+            Write-Host "POST_0 (completed results):"
+            Write-Host "  Design folders: $completedPOST"
+            Write-Host "  PCH files: $pchFiles"
+            Write-Host "  CSV result files: $csvFiles"
+            Write-Host ""
+            Write-Host "HEEDS_0 (working folder):"
+            Write-Host "  Design folders: $workingFolders"
 
             # Check for results file
-            $resFile = "$studyFolder\HEEDS_0\HEEDS0.res"
+            $resFile = "$studyFolder\HEEDS0.res"
             if (Test-Path $resFile) {
-              $size = (Get-Item $resFile).Length
-              Write-Host "Results file: $resFile ($size bytes)"
+              $size = [math]::Round((Get-Item $resFile).Length / 1MB, 2)
+              Write-Host ""
+              Write-Host "HEEDS results file: $size MB"
             }
 
             # Check for study log
@@ -487,4 +505,4 @@ jobs:
           } else {
             Write-Host "WARNING: Study folder not found"
           }
-          Write-Host "========================================================""
+          Write-Host "========================================================"
