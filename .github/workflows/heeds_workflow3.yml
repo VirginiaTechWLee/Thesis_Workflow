@@ -39,26 +39,28 @@ jobs:
       - name: Display Configuration
         shell: powershell
         run: |
-          Write-Host "========================================================"
-          Write-Host "  HEEDS STUDY WORKFLOW - CONFIGURATION"
-          Write-Host "========================================================"
-          Write-Host "Project: ${{ github.event.inputs.heeds_project }}"
-          Write-Host "Folder mode: ${{ github.event.inputs.folder_mode }}"
-          Write-Host "Timeout: ${{ github.event.inputs.timeout_minutes }} minutes"
-          Write-Host "Runner: ${{ runner.name }}"
-          Write-Host "Workspace: ${{ github.workspace }}"
-          Write-Host "HEEDS MDO: ${{ vars.HEEDS_MDO_PATH }}"
-          Write-Host "HEEDS Solver: ${{ vars.HEEDS_SOLVER_PATH }}"
-          Write-Host "Working Dir: ${{ vars.HEEDS_WORKING_DIR }}"
-          Write-Host "========================================================"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
+          Log "========================================================"
+          Log "  HEEDS STUDY WORKFLOW - CONFIGURATION"
+          Log "========================================================"
+          Log "Project: ${{ github.event.inputs.heeds_project }}"
+          Log "Folder mode: ${{ github.event.inputs.folder_mode }}"
+          Log "Timeout: ${{ github.event.inputs.timeout_minutes }} minutes"
+          Log "Runner: ${{ runner.name }}"
+          Log "Workspace: ${{ github.workspace }}"
+          Log "HEEDS MDO: ${{ vars.HEEDS_MDO_PATH }}"
+          Log "Working Dir: ${{ vars.HEEDS_WORKING_DIR }}"
+          Log "========================================================"
 
       - name: Set project parameters
         id: params
         shell: powershell
         run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
           $project = "${{ github.event.inputs.heeds_project }}"
 
-          # Set expected designs based on project
           $designs = switch ($project) {
             "quick_test" { 4 }
             "full_sweep" { 576 }
@@ -66,21 +68,16 @@ jobs:
             default { 576 }
           }
 
-          # Calculate timeout in seconds
           $timeoutMin = [int]"${{ github.event.inputs.timeout_minutes }}"
           $timeoutSec = $timeoutMin * 60
 
-          Write-Host "========================================================"
-          Write-Host "  PROJECT PARAMETERS"
-          Write-Host "========================================================"
-          Write-Host "Selected project: $project"
-          Write-Host "Expected designs: $designs"
-          Write-Host ""
-          Write-Host "Timeout settings:"
-          Write-Host "  - Minutes: $timeoutMin"
-          Write-Host "  - Seconds: $timeoutSec"
-          Write-Host "  - Hours: $([math]::Round($timeoutMin/60, 2))"
-          Write-Host "========================================================"
+          Log "========================================================"
+          Log "  PROJECT PARAMETERS"
+          Log "========================================================"
+          Log "Selected project: $project"
+          Log "Expected designs: $designs"
+          Log "Timeout: $timeoutSec seconds ($timeoutMin minutes)"
+          Log "========================================================"
 
           echo "expected_designs=$designs" >> $env:GITHUB_OUTPUT
           echo "timeout_seconds=$timeoutSec" >> $env:GITHUB_OUTPUT
@@ -88,338 +85,351 @@ jobs:
       - name: Kill existing HEEDS processes
         shell: powershell
         run: |
-          Write-Host "========================================================"
-          Write-Host "  KILLING EXISTING HEEDS PROCESSES"
-          Write-Host "========================================================"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
+          Log "========================================================"
+          Log "  KILLING EXISTING HEEDS PROCESSES"
+          Log "========================================================"
 
           $processes = @("heeds", "HEEDSMDO", "nastran", "nastranw")
           foreach ($proc in $processes) {
             $running = Get-Process -Name $proc -ErrorAction SilentlyContinue
             if ($running) {
-              Write-Host "Stopping: $proc (PID: $($running.Id))"
+              Log "Stopping: $proc (PID: $($running.Id))"
               Stop-Process -Name $proc -Force -ErrorAction SilentlyContinue
             }
           }
 
           Start-Sleep -Seconds 3
 
-          # Verify
           $stillRunning = Get-Process | Where-Object { $_.Name -match "heeds|HEEDSMDO|nastran" }
           if ($stillRunning) {
-            Write-Host "WARNING: Some processes still running:"
+            Log "WARNING: Some processes still running:"
             $stillRunning | Format-Table Name, Id
           } else {
-            Write-Host "SUCCESS: All HEEDS processes stopped"
+            Log "SUCCESS: All HEEDS processes stopped"
           }
-          Write-Host "========================================================"
+          Log "========================================================"
 
       - name: Handle existing study folder
         shell: powershell
         run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
           $project = "${{ github.event.inputs.heeds_project }}"
           $mode = "${{ github.event.inputs.folder_mode }}"
           $studyFolder = "${{ vars.HEEDS_WORKING_DIR }}\${project}_Study_1"
 
-          Write-Host "========================================================"
-          Write-Host "  FOLDER MANAGEMENT"
-          Write-Host "========================================================"
-          Write-Host "Study folder: $studyFolder"
-          Write-Host "Selected mode: $mode"
-          Write-Host ""
+          Log "========================================================"
+          Log "  FOLDER MANAGEMENT"
+          Log "========================================================"
+          Log "Study folder: $studyFolder"
+          Log "Selected mode: $mode"
 
           if (Test-Path $studyFolder) {
-            # Get existing folder info
             $folderInfo = Get-Item $studyFolder
-            $existingDesigns = (Get-ChildItem "$studyFolder\HEEDS_0\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
-            $completedDesigns = (Get-ChildItem "$studyFolder\HEEDS_0\Design*\*.f06" -ErrorAction SilentlyContinue | Measure-Object).Count
             
-            Write-Host "[EXISTS] Folder already exists!"
-            Write-Host "  Created: $($folderInfo.CreationTime)"
-            Write-Host "  Modified: $($folderInfo.LastWriteTime)"
-            Write-Host "  Design folders: $existingDesigns"
-            Write-Host "  Completed designs (with .f06): $completedDesigns"
-            Write-Host ""
+            Log "[EXISTS] Folder already exists!"
+            Log "  Created: $($folderInfo.CreationTime)"
+            Log "  Modified: $($folderInfo.LastWriteTime)"
 
             if ($mode -eq "overwrite_existing") {
-              Write-Host "[ACTION] OVERWRITE mode selected"
-              Write-Host "[DELETING] Removing existing folder..."
+              Log "[ACTION] OVERWRITE mode - deleting existing folder..."
               Remove-Item -Path $studyFolder -Recurse -Force
-              Write-Host "[DONE] Folder deleted successfully"
-              Write-Host "[NEXT] HEEDS will create fresh folder"
+              if (Test-Path $studyFolder) {
+                Log "[ERROR] Failed to delete folder!"
+                exit 1
+              }
+              Log "[DONE] Folder deleted successfully"
             }
             elseif ($mode -eq "skip_if_exists") {
-              Write-Host "[ACTION] SKIP mode selected"
-              Write-Host "[SKIP] Folder exists - skipping this run"
-              Write-Host "[EXIT] Workflow will exit now"
-              Write-Host "========================================================"
+              Log "[SKIP] Folder exists - exiting"
               exit 0
             }
-            else {
-              Write-Host "[ACTION] CREATE_NEW_TIMESTAMP mode selected"
-              Write-Host "[INFO] Will create new timestamped folder alongside existing one"
-            }
           } else {
-            Write-Host "[NOT EXISTS] Folder does not exist"
-            Write-Host "[INFO] HEEDS will create a new folder when study starts"
+            Log "[OK] Folder does not exist - will be created by HEEDS"
           }
-          Write-Host "========================================================"
+          Log "========================================================"
 
-      - name: Verify HEEDS file exists
+      - name: Verify HEEDS project file exists
         shell: powershell
         run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
           $project = "${{ github.event.inputs.heeds_project }}"
-          $heedsFile = "${{ github.workspace }}\heeds\projects\${project}.heeds"
+          $heedsFile = "${{ github.workspace }}\heeds_projects\${project}.heeds"
 
-          Write-Host "========================================================"
-          Write-Host "  VERIFYING HEEDS FILE"
-          Write-Host "========================================================"
-          Write-Host "Looking for: $heedsFile"
+          Log "========================================================"
+          Log "  VERIFYING HEEDS FILE"
+          Log "========================================================"
+          Log "Looking for: $heedsFile"
 
           if (Test-Path $heedsFile) {
             $size = (Get-Item $heedsFile).Length
-            Write-Host "SUCCESS: File found (Size: $size bytes)"
+            Log "SUCCESS: File found (Size: $size bytes)"
+            
+            # Check for PCH VisFile entry
+            $hasPch = Select-String -Path $heedsFile -Pattern "VisFile.*randombeamx\.pch" -Quiet
+            if ($hasPch) {
+              Log "[OK] PCH VisFile entry found"
+            } else {
+              Log "[ERROR] PCH VisFile entry MISSING! PCH files will not be saved to POST_0"
+              Log "[ERROR] Add this line to the .heeds file:"
+              Log '        <VisFile type="data" filename="randombeamx.pch" source="analysisFolder"/>'
+              exit 1
+            }
           } else {
-            Write-Host "ERROR: HEEDS file not found!"
-            Write-Host ""
-            Write-Host "Available files in heeds\projects:"
-            Get-ChildItem "${{ github.workspace }}\heeds\projects\*.heeds" | ForEach-Object {
-              Write-Host "  - $($_.Name)"
+            Log "ERROR: HEEDS file not found!"
+            Log "Available files in heeds_projects:"
+            Get-ChildItem "${{ github.workspace }}\heeds_projects\*.heeds" -ErrorAction SilentlyContinue | ForEach-Object {
+              Log "  - $($_.Name)"
             }
             exit 1
           }
-          Write-Host "========================================================"
+          Log "========================================================"
 
       - name: Copy HEEDS file to Documents
         shell: powershell
         run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
           $project = "${{ github.event.inputs.heeds_project }}"
-          $source = "${{ github.workspace }}\heeds\projects\${project}.heeds"
+          $source = "${{ github.workspace }}\heeds_projects\${project}.heeds"
           $dest = "${{ vars.HEEDS_WORKING_DIR }}\${project}.heeds"
 
-          Write-Host "========================================================"
-          Write-Host "  COPYING HEEDS FILE"
-          Write-Host "========================================================"
-          Write-Host "From: $source"
-          Write-Host "To: $dest"
+          Log "========================================================"
+          Log "  COPYING HEEDS FILE"
+          Log "========================================================"
+          Log "From: $source"
+          Log "To: $dest"
 
           Copy-Item -Path $source -Destination $dest -Force
 
           if (Test-Path $dest) {
-            Write-Host "SUCCESS: File copied"
+            Log "SUCCESS: File copied"
           } else {
-            Write-Host "ERROR: Copy failed!"
+            Log "ERROR: Copy failed!"
             exit 1
           }
-          Write-Host "========================================================"
+          Log "========================================================"
 
-      - name: Copy required files to HEEDS working directory
+      - name: Copy required files to working directory
         shell: powershell
         run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
           $workDir = "${{ vars.HEEDS_WORKING_DIR }}"
 
-          Write-Host "========================================================"
-          Write-Host "  COPYING REQUIRED FILES"
-          Write-Host "========================================================"
+          Log "========================================================"
+          Log "  COPYING REQUIRED FILES"
+          Log "========================================================"
 
-          # THE KEY FIX: Use Misc/Bush.blk (Femap format with comments)
+          # Bush.blk - CRITICAL: Use Misc/Bush.blk (Femap format)
           if (Test-Path "${{ github.workspace }}\Misc\Bush.blk") {
             Copy-Item "${{ github.workspace }}\Misc\Bush.blk" "$workDir\Bush.blk" -Force
-            Write-Host "[OK] Bush.blk (Femap format - CRITICAL)"
+            Log "[OK] Bush.blk (Femap format - CRITICAL)"
+          } else {
+            Log "[ERROR] Misc\Bush.blk not found!"
+            exit 1
           }
 
-          # Copy Nastran model files
+          # FBM_TO_DBALL.bat - CRITICAL for Nastran execution
+          if (Test-Path "${{ github.workspace }}\FBM_TO_DBALL.bat") {
+            Copy-Item "${{ github.workspace }}\FBM_TO_DBALL.bat" "$workDir\FBM_TO_DBALL.bat" -Force
+            Log "[OK] FBM_TO_DBALL.bat"
+            
+            # Verify it has the /nobreak fix
+            $batContent = Get-Content "$workDir\FBM_TO_DBALL.bat" -Raw
+            if ($batContent -match "timeout /t 10 /nobreak") {
+              Log "[OK] FBM_TO_DBALL.bat has /nobreak fix"
+            } else {
+              Log "[WARN] FBM_TO_DBALL.bat may be missing /nobreak fix!"
+              Log "[WARN] This can cause Nastran to hang waiting for keypress"
+            }
+          } else {
+            Log "[ERROR] FBM_TO_DBALL.bat not found in repo root!"
+            exit 1
+          }
+
+          # Nastran model files
           if (Test-Path "${{ github.workspace }}\templates\Fixed_base_beam.dat") {
             Copy-Item "${{ github.workspace }}\templates\Fixed_base_beam.dat" "$workDir\" -Force
-            Write-Host "[OK] Fixed_base_beam.dat"
+            Log "[OK] Fixed_base_beam.dat"
           }
 
           if (Test-Path "${{ github.workspace }}\templates\Recoveries.blk") {
             Copy-Item "${{ github.workspace }}\templates\Recoveries.blk" "$workDir\" -Force
-            Write-Host "[OK] Recoveries.blk"
+            Log "[OK] Recoveries.blk"
           }
 
           if (Test-Path "${{ github.workspace }}\templates\RandomBeamX.dat") {
             Copy-Item "${{ github.workspace }}\templates\RandomBeamX.dat" "$workDir\" -Force
-            Write-Host "[OK] RandomBeamX.dat"
+            Log "[OK] RandomBeamX.dat"
           }
 
-          # Copy batch file for Nastran execution
-          if (Test-Path "${{ github.workspace }}\FBM_TO_DBALL.bat") {
-            Copy-Item "${{ github.workspace }}\FBM_TO_DBALL.bat" "$workDir\" -Force
-            Write-Host "[OK] FBM_TO_DBALL.bat"
-          }
-
-          # Copy post-processor script
+          # Post-processor script
           if (Test-Path "${{ github.workspace }}\Scripts\Pch_TO_CSV2.py") {
             Copy-Item "${{ github.workspace }}\Scripts\Pch_TO_CSV2.py" "$workDir\" -Force
-            Write-Host "[OK] Pch_TO_CSV2.py"
+            Log "[OK] Pch_TO_CSV2.py"
           }
 
-          # Copy baseline files for delta calculations
+          # Baseline files for delta calculations
           if (Test-Path "${{ github.workspace }}\baseline\acceleration_results.csv") {
             Copy-Item "${{ github.workspace }}\baseline\acceleration_results.csv" "$workDir\acceleration_results_baseline.csv" -Force
-            Write-Host "[OK] acceleration_results_baseline.csv"
+            Log "[OK] acceleration_results_baseline.csv"
           }
 
           if (Test-Path "${{ github.workspace }}\baseline\displacement_results.csv") {
             Copy-Item "${{ github.workspace }}\baseline\displacement_results.csv" "$workDir\displacement_results_baseline.csv" -Force
-            Write-Host "[OK] displacement_results_baseline.csv"
+            Log "[OK] displacement_results_baseline.csv"
           }
 
-          Write-Host "========================================================"
+          Log "========================================================"
 
       - name: Verify Bush.blk format
         shell: powershell
         run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
           $workDir = "${{ vars.HEEDS_WORKING_DIR }}"
           $bushFile = "$workDir\Bush.blk"
 
-          Write-Host "========================================================"
-          Write-Host "  VERIFYING BUSH.BLK FORMAT"
-          Write-Host "========================================================"
+          Log "========================================================"
+          Log "  VERIFYING BUSH.BLK FORMAT"
+          Log "========================================================"
 
           if (Test-Path $bushFile) {
             $content = Get-Content $bushFile -Raw
             if ($content -match '\$ Femap Property') {
-              Write-Host "[PASS] Bush.blk has Femap comment lines"
+              Log "[PASS] Bush.blk has Femap comment lines"
             } else {
-              Write-Host "[WARN] Bush.blk may be missing Femap comments - charCol positions might be wrong"
+              Log "[ERROR] Bush.blk missing Femap comments - charCol mismatch!"
+              Log "[ERROR] Use Misc/Bush.blk instead of baseline/Bush.blk"
+              exit 1
             }
           } else {
-            Write-Host "[WARN] Bush.blk not found in working directory"
+            Log "[ERROR] Bush.blk not found in working directory"
+            exit 1
           }
-          Write-Host "========================================================"
+          Log "========================================================"
 
       - name: Run HEEDS Study
         shell: powershell
         run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
           $project = "${{ github.event.inputs.heeds_project }}"
           $heedsFile = "${{ vars.HEEDS_WORKING_DIR }}\${project}.heeds"
           $runScript = "${{ github.workspace }}\run_study_v2.py"
           $expectedDesigns = ${{ steps.params.outputs.expected_designs }}
           $timeoutSec = ${{ steps.params.outputs.timeout_seconds }}
 
-          Write-Host "========================================================"
-          Write-Host "  STARTING HEEDS STUDY"
-          Write-Host "========================================================"
-          Write-Host "Project: $heedsFile"
-          Write-Host "Script: $runScript"
-          Write-Host "Expected designs: $expectedDesigns"
-          Write-Host "Timeout: $timeoutSec seconds"
-          Write-Host "========================================================"
+          Log "========================================================"
+          Log "  STARTING HEEDS STUDY"
+          Log "========================================================"
+          Log "Project: $heedsFile"
+          Log "Script: $runScript"
+          Log "Expected designs: $expectedDesigns"
+          Log "Timeout: $timeoutSec seconds"
+          Log "========================================================"
 
-          # Verify run script exists
           if (-not (Test-Path $runScript)) {
-            Write-Host "ERROR: run_study_v2.py not found at $runScript"
+            Log "ERROR: run_study_v2.py not found at $runScript"
             exit 1
           }
 
-          # Start HEEDS with verified working command
-          # Using HEEDS_MDO_PATH with -b -script -project syntax
           $heedsExe = "${{ vars.HEEDS_MDO_PATH }}"
-
-          Write-Host "Starting HEEDS..."
-          Write-Host "Executable: $heedsExe"
-          Write-Host "Command: $heedsExe -b -script `"$runScript`" -project `"$heedsFile`""
+          Log "Starting HEEDS..."
+          Log "Executable: $heedsExe"
+          Log "Command: $heedsExe -b -script `"$runScript`" -project `"$heedsFile`""
 
           $process = Start-Process -FilePath $heedsExe `
             -ArgumentList "-b", "-script", "`"$runScript`"", "-project", "`"$heedsFile`"" `
             -PassThru -NoNewWindow -WorkingDirectory "${{ vars.HEEDS_WORKING_DIR }}"
 
-          Write-Host "HEEDS started (PID: $($process.Id))"
+          Log "HEEDS started (PID: $($process.Id))"
 
-          # Wait for study folder
           $studyFolder = "${{ vars.HEEDS_WORKING_DIR }}\${project}_Study_1"
-          $heedsFolder = "$studyFolder\HEEDS_0"
+          $post0Folder = "$studyFolder\POST_0"
           $startTime = Get-Date
-          $folderTimeout = 300  # 5 minutes for initialization
+          $folderTimeout = 300
 
-          Write-Host ""
-          Write-Host "Waiting for study folder to be created..."
+          Log ""
+          Log "Waiting for study folder..."
 
-          while (-not (Test-Path $heedsFolder)) {
+          while (-not (Test-Path $studyFolder)) {
             $elapsed = ((Get-Date) - $startTime).TotalSeconds
             if ($elapsed -gt $folderTimeout) {
-              Write-Host "ERROR: Study folder not created after $folderTimeout seconds"
-              Write-Host "Expected folder: $heedsFolder"
-              Write-Host ""
-              Write-Host "Checking for any Study folders:"
-              Get-ChildItem "${{ vars.HEEDS_WORKING_DIR }}\*_Study_1" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-                Write-Host "  Found: $($_.Name)"
-              }
+              Log "ERROR: Study folder not created after $folderTimeout seconds"
               Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
               exit 1
             }
-            Write-Host "  Waiting... ($([int]$elapsed)s / ${folderTimeout}s)"
+            Log "  Waiting... ($([int]$elapsed)s / ${folderTimeout}s)"
             Start-Sleep -Seconds 10
           }
 
-          Write-Host "SUCCESS: Study folder created!"
-          Write-Host "  Path: $studyFolder"
+          Log "SUCCESS: Study folder created!"
 
-          # Monitor progress
-          Write-Host ""
-          Write-Host "========================================================"
-          Write-Host "  MONITORING PROGRESS"
-          Write-Host "========================================================"
-          Write-Host "Tracking COMPLETED designs in POST_0 folder"
-          Write-Host "  POST_0 path: $studyFolder\POST_0"
-          Write-Host ""
+          # Monitor progress using POST_0 with file verification (Option B)
+          Log ""
+          Log "========================================================"
+          Log "  MONITORING PROGRESS (POST_0 + PCH/CSV Verification)"
+          Log "========================================================"
 
-          $postFolder = "$studyFolder\POST_0"
           $lastCount = 0
           $stallTime = 0
-          $maxStall = 600  # 10 minutes stall timeout
+          $maxStall = 600
 
           while ($true) {
             $elapsed = ((Get-Date) - $startTime).TotalSeconds
 
-            # Count COMPLETED designs in POST_0 (post-processed results)
-            $completed = (Get-ChildItem "$postFolder\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+            # Option B: Count designs where BOTH PCH and CSV exist in POST_0
+            $completed = 0
+            $designFolders = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
+            foreach ($design in $designFolders) {
+              $pchExists = Test-Path "$($design.FullName)\Analysis_1\randombeamx.pch"
+              $csvExists = Test-Path "$($design.FullName)\Analysis_1\acceleration_results.csv"
+              if ($pchExists -and $csvExists) { $completed++ }
+            }
             
-            # Also count HEEDS_0 working folders for reference
-            $workingFolders = (Get-ChildItem "$heedsFolder\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+            $totalFolders = ($designFolders | Measure-Object).Count
 
-            # Calculate progress based on POST_0 completed designs
-            $pct = [math]::Round(($completed / $expectedDesigns) * 100, 1)
+            $pct = if ($expectedDesigns -gt 0) { [math]::Round(($completed / $expectedDesigns) * 100, 1) } else { 0 }
             $barLen = 40
             $filled = [math]::Min($barLen, [math]::Floor($barLen * $completed / $expectedDesigns))
             $bar = ("#" * $filled) + ("-" * ($barLen - $filled))
 
-            Write-Host "[$bar] $completed/$expectedDesigns POST_0 ($pct%) | HEEDS_0: $workingFolders | Elapsed: $([int]$elapsed)s"
+            Log "[$bar] $completed/$expectedDesigns verified ($pct%) | POST_0: $totalFolders | Elapsed: $([int]$elapsed)s"
 
-            # Check completion based on POST_0 designs
             if ($completed -ge $expectedDesigns) {
-              Write-Host ""
-              Write-Host "========================================================"
-              Write-Host "  STUDY COMPLETE!"
-              Write-Host "========================================================"
-              Write-Host "Completed designs (POST_0): $completed"
-              Write-Host "Working folders (HEEDS_0): $workingFolders"
-              Write-Host "Total time: $([int]$elapsed) seconds ($([math]::Round($elapsed/60, 1)) minutes)"
+              Log ""
+              Log "========================================================"
+              Log "  STUDY COMPLETE!"
+              Log "========================================================"
+              Log "Verified completed designs: $completed"
+              Log "Total time: $([int]$elapsed) seconds ($([math]::Round($elapsed/60, 1)) minutes)"
               break
             }
 
-            # Check timeout
             if ($elapsed -gt $timeoutSec) {
-              Write-Host ""
-              Write-Host "ERROR: Study timed out after $timeoutSec seconds"
-              Write-Host "Completed (POST_0): $completed / $expectedDesigns"
-              Write-Host "Working folders (HEEDS_0): $workingFolders"
+              Log ""
+              Log "ERROR: Study timed out after $timeoutSec seconds"
+              Log "Verified completed: $completed / $expectedDesigns"
               Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
               Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
+              Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
               exit 1
             }
 
-            # Check for stall (no new completed designs for 10 minutes)
             if ($completed -eq $lastCount) {
               $stallTime += 15
               if ($stallTime -ge $maxStall) {
-                Write-Host ""
-                Write-Host "ERROR: Study stalled - no new completed designs for $maxStall seconds"
-                Write-Host "Completed (POST_0): $completed / $expectedDesigns"
+                Log ""
+                Log "ERROR: Study stalled - no progress for $maxStall seconds"
+                Log "Verified completed: $completed / $expectedDesigns"
                 Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
                 Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
+                Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
                 exit 1
               }
             } else {
@@ -430,13 +440,100 @@ jobs:
             Start-Sleep -Seconds 15
           }
 
+      - name: Validate Results
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
+          $project = "${{ github.event.inputs.heeds_project }}"
+          $studyFolder = "${{ vars.HEEDS_WORKING_DIR }}\${project}_Study_1"
+          $post0Folder = "$studyFolder\POST_0"
+          $expectedDesigns = ${{ steps.params.outputs.expected_designs }}
+
+          Log "========================================================"
+          Log "  VALIDATING RESULTS"
+          Log "========================================================"
+
+          $pchCount = (Get-ChildItem "$post0Folder\Design*\Analysis_1\*.pch" -ErrorAction SilentlyContinue | Measure-Object).Count
+          $csvCount = (Get-ChildItem "$post0Folder\Design*\Analysis_1\*_results.csv" -ErrorAction SilentlyContinue | Measure-Object).Count
+          $folderCount = (Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+
+          Log "POST_0 Design folders: $folderCount"
+          Log "PCH files: $pchCount"
+          Log "CSV result files: $csvCount"
+          Log "Expected designs: $expectedDesigns"
+
+          if ($pchCount -eq 0) {
+            Log ""
+            Log "[ERROR] NO PCH FILES FOUND!"
+            Log "[ERROR] Nastran analysis did not complete successfully"
+            Log ""
+            Log "=== DIAGNOSTIC INFO ==="
+            Log ""
+            Log "--- Analysis.log (Design1) ---"
+            $logPath = "$post0Folder\Design1\Analysis_1\Analysis.log"
+            if (Test-Path $logPath) {
+              Get-Content $logPath
+            } else {
+              Log "Analysis.log not found"
+            }
+            Log ""
+            Log "--- Tool Output (Design1) ---"
+            $msgPath = "$post0Folder\Design1\Analysis_1\Tool_Analysis_1_output.msg"
+            if (Test-Path $msgPath) {
+              Get-Content $msgPath
+            } else {
+              Log "Tool output not found"
+            }
+            Log ""
+            Log "--- FBM_TO_DBALL.bat check ---"
+            $batPath = "${{ vars.HEEDS_WORKING_DIR }}\FBM_TO_DBALL.bat"
+            if (Test-Path $batPath) {
+              Log "FBM_TO_DBALL.bat exists"
+              Log "Content:"
+              Get-Content $batPath
+            } else {
+              Log "[ERROR] FBM_TO_DBALL.bat NOT FOUND in working directory!"
+            }
+            Log ""
+            Log "--- HEEDS_0 Design folder contents ---"
+            $heeds0Path = "$studyFolder\HEEDS_0\Design_0001"
+            if (Test-Path $heeds0Path) {
+              Get-ChildItem $heeds0Path | Select-Object Name, Length
+            } else {
+              Log "HEEDS_0\Design_0001 not found"
+            }
+            Log ""
+            Log "========================================================"
+            exit 1
+          }
+
+          if ($csvCount -eq 0) {
+            Log ""
+            Log "[ERROR] NO CSV FILES FOUND!"
+            Log "[ERROR] Post-processing (Pch_TO_CSV2.py) may have failed"
+            exit 1
+          }
+
+          if ($pchCount -lt $expectedDesigns) {
+            Log ""
+            Log "[WARN] Not all designs completed"
+            Log "[WARN] Expected: $expectedDesigns, Got: $pchCount"
+          }
+
+          Log ""
+          Log "[SUCCESS] Results validated!"
+          Log "========================================================"
+
       - name: Cleanup HEEDS processes
         if: always()
         shell: powershell
         run: |
-          Write-Host "========================================================"
-          Write-Host "  FINAL CLEANUP"
-          Write-Host "========================================================"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
+          Log "========================================================"
+          Log "  FINAL CLEANUP"
+          Log "========================================================"
 
           Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
           Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
@@ -447,62 +544,57 @@ jobs:
 
           $remaining = Get-Process | Where-Object { $_.Name -match "heeds|HEEDSMDO|nastran" }
           if ($remaining) {
-            Write-Host "WARNING: Some processes still running"
+            Log "WARNING: Some processes still running"
           } else {
-            Write-Host "SUCCESS: All HEEDS processes stopped"
+            Log "SUCCESS: All HEEDS processes stopped"
           }
-          Write-Host "========================================================"
+          Log "========================================================"
 
       - name: Report Results
         if: always()
         shell: powershell
         run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
           $project = "${{ github.event.inputs.heeds_project }}"
           $studyFolder = "${{ vars.HEEDS_WORKING_DIR }}\${project}_Study_1"
 
-          Write-Host "========================================================"
-          Write-Host "  FINAL REPORT"
-          Write-Host "========================================================"
+          Log "========================================================"
+          Log "  FINAL REPORT"
+          Log "========================================================"
 
           if (Test-Path $studyFolder) {
-            # Count POST_0 completed designs (final results)
-            $completedPOST = (Get-ChildItem "$studyFolder\POST_0\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+            $post0Folder = "$studyFolder\POST_0"
+            $heeds0Folder = "$studyFolder\HEEDS_0"
             
-            # Count HEEDS_0 working folders
-            $workingFolders = (Get-ChildItem "$studyFolder\HEEDS_0\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
-            
-            # Count PCH files in POST_0
-            $pchFiles = (Get-ChildItem "$studyFolder\POST_0\Design*\Analysis_1\*.pch" -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
-            
-            # Count CSV result files in POST_0
-            $csvFiles = (Get-ChildItem "$studyFolder\POST_0\Design*\Analysis_1\*_results*.csv" -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
-            
-            Write-Host "Study folder: $studyFolder"
-            Write-Host ""
-            Write-Host "POST_0 (completed results):"
-            Write-Host "  Design folders: $completedPOST"
-            Write-Host "  PCH files: $pchFiles"
-            Write-Host "  CSV result files: $csvFiles"
-            Write-Host ""
-            Write-Host "HEEDS_0 (working folder):"
-            Write-Host "  Design folders: $workingFolders"
+            $post0Designs = (Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+            $pchFiles = (Get-ChildItem "$post0Folder\Design*\Analysis_1\*.pch" -ErrorAction SilentlyContinue | Measure-Object).Count
+            $csvFiles = (Get-ChildItem "$post0Folder\Design*\Analysis_1\*_results.csv" -ErrorAction SilentlyContinue | Measure-Object).Count
+            $heeds0Designs = (Get-ChildItem "$heeds0Folder\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
 
-            # Check for results file
-            $resFile = "$studyFolder\HEEDS0.res"
+            Log "Study folder: $studyFolder"
+            Log ""
+            Log "POST_0 (completed results):"
+            Log "  Design folders: $post0Designs"
+            Log "  PCH files: $pchFiles"
+            Log "  CSV result files: $csvFiles"
+            Log ""
+            Log "HEEDS_0 (working folder):"
+            Log "  Design folders: $heeds0Designs"
+
+            $resFile = "$heeds0Folder\HEEDS0.res"
             if (Test-Path $resFile) {
               $size = [math]::Round((Get-Item $resFile).Length / 1MB, 2)
-              Write-Host ""
-              Write-Host "HEEDS results file: $size MB"
+              Log "HEEDS results file: $size MB"
             }
 
-            # Check for study log
             $logFile = "$studyFolder\Study_1.log"
             if (Test-Path $logFile) {
-              Write-Host ""
-              Write-Host "=== Study Log (last 20 lines) ==="
+              Log ""
+              Log "=== Study Log (last 20 lines) ==="
               Get-Content $logFile -Tail 20
             }
           } else {
-            Write-Host "WARNING: Study folder not found"
+            Log "WARNING: Study folder not found"
           }
-          Write-Host "========================================================"
+          Log "========================================================"
