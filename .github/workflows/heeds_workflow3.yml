@@ -157,7 +157,7 @@ jobs:
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
           
           $project = "${{ github.event.inputs.heeds_project }}"
-          $heedsFile = "${{ github.workspace }}\heeds_projects\${project}.heeds"
+          $heedsFile = "${{ github.workspace }}\heeds/projects\${project}.heeds"
 
           Log "========================================================"
           Log "  VERIFYING HEEDS FILE"
@@ -180,8 +180,8 @@ jobs:
             }
           } else {
             Log "ERROR: HEEDS file not found!"
-            Log "Available files in heeds_projects:"
-            Get-ChildItem "${{ github.workspace }}\heeds_projects\*.heeds" -ErrorAction SilentlyContinue | ForEach-Object {
+            Log "Available files in heeds/projects:"
+            Get-ChildItem "${{ github.workspace }}\heeds/projects\*.heeds" -ErrorAction SilentlyContinue | ForEach-Object {
               Log "  - $($_.Name)"
             }
             exit 1
@@ -194,7 +194,7 @@ jobs:
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
           
           $project = "${{ github.event.inputs.heeds_project }}"
-          $source = "${{ github.workspace }}\heeds_projects\${project}.heeds"
+          $source = "${{ github.workspace }}\heeds/projects\${project}.heeds"
           $dest = "${{ vars.HEEDS_WORKING_DIR }}\${project}.heeds"
 
           Log "========================================================"
