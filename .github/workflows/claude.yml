@@ -11,6 +11,7 @@ permissions:
   issues: write
   pull-requests: write
   id-token: write
+  actions: write
 
 jobs:
   claude-assistant:
@@ -24,3 +25,14 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          allowed_tools: |
+            Edit
+            MultiEdit
+            Glob
+            Grep
+            LS
+            Read
+            Write
+            Bash(gh:*)
+            Bash(git:*)
+            Bash(curl:*)
