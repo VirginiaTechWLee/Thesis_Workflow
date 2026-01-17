@@ -7,11 +7,12 @@ on:
     types: [created]
 
 permissions:
-  contents: read
+  contents: write
   issues: write
   pull-requests: write
   id-token: write
   actions: write
+  workflows: write
 
 jobs:
   claude-assistant:
