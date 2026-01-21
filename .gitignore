@@ -77,3 +77,8 @@ heeds/results/**/*.bak
 !heeds/results/
 !heeds/scripts/
 !heeds/tests/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
