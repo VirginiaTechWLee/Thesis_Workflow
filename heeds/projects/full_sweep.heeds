@@ -1632,6 +1632,7 @@
         <VisFile type="image" filename="all_displacement_dof_T1.png" source="analysisFolder"/>
         <VisFile type="data" filename="displacement_results.csv" source="analysisFolder"/>
         <VisFile type="data" filename="randombeamx.pch" source="analysisFolder"/>
+        <VisFile type="data" filename="Bush.blk" source="analysisFolder"/>
         <Command command="&quot;C:\\HEEDS\MDO\Ver2410\Python3\python.exe&quot; Pch_TO_CSV2.py" event="postAnalysis" folder="designFolder" useRval="0" value="0"/>
         <primaryInput ref="HEEDS.Input.File.Fixed_base_beam.dat"/>
         <Reservation active="false" mode="share"/>
