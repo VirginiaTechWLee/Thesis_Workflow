@@ -1,271 +1,29 @@
-name: Baseline Workflow1
-on:
-  workflow_dispatch:    # Manual trigger - run standalone
-  workflow_call:        # Called by other workflows (e.g., Workflow 4)
-    inputs:
-      commit_results:
-        description: 'Commit results to Git'
-        required: false
-        type: boolean
-        default: true
-    outputs:
-      pch_path:
-        description: "Path to baseline PCH file"
-        value: ${{ jobs.generate-baseline.outputs.pch_path }}
-      baseline_ready:
-        description: "Whether baseline was generated successfully"
-        value: ${{ jobs.generate-baseline.outputs.baseline_ready }}
-
-jobs:
-  generate-baseline:
-    runs-on: self-hosted
-    outputs:
-      pch_path: ${{ steps.outputs.outputs.pch_path }}
-      baseline_ready: ${{ steps.outputs.outputs.baseline_ready }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          clean: true
-
-      - name: Validate environment variables
-        run: |
-          $missing = @()
-          if (-not "${{ vars.PYTHON_PATH }}") { $missing += "PYTHON_PATH" }
-          if (-not "${{ vars.NASTRAN_PATH }}") { $missing += "NASTRAN_PATH" }
-          if (-not "${{ vars.SCRATCH_DIR }}") { $missing += "SCRATCH_DIR" }
-          if ($missing.Count -gt 0) {
-            Write-Error "Missing required GitHub variables: $($missing -join ', ')"
-            Write-Host "Please add these variables at: Settings -> Secrets and variables -> Actions -> Variables"
-            exit 1
-          }
-          Write-Host "All required variables configured"
-          Write-Host "Python: ${{ vars.PYTHON_PATH }}"
-          Write-Host "Nastran: ${{ vars.NASTRAN_PATH }}"
-          Write-Host "Scratch: ${{ vars.SCRATCH_DIR }}"
-
-      - name: Setup and validate scratch directory
-        run: |
-          if (-not (Test-Path "${{ vars.SCRATCH_DIR }}")) {
-            mkdir "${{ vars.SCRATCH_DIR }}"
-          }
-          $testFile = "${{ vars.SCRATCH_DIR }}\test_write_$([guid]::NewGuid()).tmp"
-          try {
-            "test" | Out-File $testFile
-            Remove-Item $testFile
-            Write-Host "Scratch directory ${{ vars.SCRATCH_DIR }} is writable"
-          } catch {
-            Write-Error "Cannot write to ${{ vars.SCRATCH_DIR }} - check permissions"
-            exit 1
-          }
-
-      - name: Debug - List files
-        run: |
-          Write-Host "=== Current directory ==="
-          pwd
-          Write-Host "=== Templates folder ==="
-          dir templates\
-          Write-Host "=== All files ==="
-          dir
-
-      - name: Clean previous Nastran outputs
-        run: |
-          Remove-Item *.pch,*.pch.*,*.f06,*.op2,*.op2.*,*.MASTER,*.DBALL,*.f04,*.log,*.IFPDAT -ErrorAction SilentlyContinue
-          Remove-Item "${{ vars.SCRATCH_DIR }}\*" -Force -ErrorAction SilentlyContinue
-
-      - name: Generate baseline Bush.blk
-        run: |
-          & "${{ vars.PYTHON_PATH }}" Scripts/generate_baseline_bush.py
-
-      - name: Clear baseline folder
-        run: |
-          if (Test-Path baseline) {
-            Remove-Item baseline\* -Force -ErrorAction SilentlyContinue
-          } else {
-            mkdir baseline
-          }
-
-      - name: Copy files for Nastran run
-        run: |
-          copy Bush.blk baseline\
-          copy templates\Fixed_base_beam.dat .
-          copy templates\Recoveries.blk .
-          if (Test-Path templates\RandomBeamX.dat) { copy templates\RandomBeamX.dat . }
-          elseif (Test-Path templates\randombeamx.dat) { copy templates\randombeamx.dat . }
-          else { Write-Error "RandomBeamX.dat not found in templates"; exit 1 }
-
-      - name: Run NASTRAN Step 1 - Fixed Base Beam
-        run: |
-          & "${{ vars.NASTRAN_PATH }}" Fixed_base_beam.dat scr=no sdir="${{ vars.SCRATCH_DIR }}"
-
-      - name: Validate Fixed Base Beam run
-        run: |
-          if (-not (Test-Path fixed_base_beam.f06)) {
-            Write-Error "fixed_base_beam.f06 not created - Nastran failed to run"
-            exit 1
-          }
-          $fatal = Select-String -Path "fixed_base_beam.f06" -Pattern "FATAL" -ErrorAction SilentlyContinue
-          if ($fatal) {
-            Write-Host "=== FATAL ERROR FOUND IN fixed_base_beam.f06 ==="
-            $fatal | ForEach-Object { Write-Host $_.Line }
-            Write-Host "=== Check fixed_base_beam.f06 for details ==="
-            Write-Error "FATAL error in Fixed_base_beam run"
-            exit 1
-          }
-          if (-not (Test-Path fixed_base_beam.MASTER)) {
-            Write-Error "fixed_base_beam.MASTER not created - check f06 for errors"
-            exit 1
-          }
-          Write-Host "Fixed Base Beam run completed successfully"
-
-      - name: Run NASTRAN Step 2 - Random Beam
-        run: |
-          Start-Sleep -Seconds 5
-          $randFile = Get-ChildItem -Name "RandomBeamX.dat","randombeamx.dat" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($randFile) {
-            & "${{ vars.NASTRAN_PATH }}" $randFile sdir="${{ vars.SCRATCH_DIR }}"
-          } else {
-            Write-Error "RandomBeamX.dat not found for Nastran run"
-            exit 1
-          }
-
-      - name: Validate Random Beam run
-        run: |
-          $f06 = Get-ChildItem -Name "*randombeamx*.f06","*RandomBeamX*.f06" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $f06) {
-            Write-Error "randombeamx.f06 not created - Nastran failed to run"
-            exit 1
-          }
-          $fatal = Select-String -Path $f06 -Pattern "FATAL" -ErrorAction SilentlyContinue
-          if ($fatal) {
-            Write-Host "=== FATAL ERROR FOUND IN $f06 ==="
-            $fatal | ForEach-Object { Write-Host $_.Line }
-            Write-Host "=== Check $f06 for details ==="
-            Write-Error "FATAL error in RandomBeamX run"
-            exit 1
-          }
-          Write-Host "Random Beam run completed successfully"
-
-      - name: Debug - List files after Nastran
-        run: |
-          Write-Host "=== Files in current directory ==="
-          dir
-          Write-Host "=== Looking for output files ==="
-          dir *.pch*,*.f06,*.op2*,*.MASTER -ErrorAction SilentlyContinue
-
-      - name: Move Nastran outputs to baseline
-        run: |
-          # Move PCH file
-          $pch = Get-ChildItem -Name "*.pch.*","*.pch" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($pch) {
-            move $pch baseline\randombeamx.pch
-            Write-Host "Moved $pch to baseline\randombeamx.pch"
-          } else {
-            Write-Host "WARNING: No .pch file found"
-          }
-
-          # Move randombeamx f06 file
-          $f06 = Get-ChildItem -Name "*randombeamx*.f06","*RandomBeamX*.f06" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($f06) {
-            move $f06 baseline\
-            Write-Host "Moved $f06 to baseline\"
-          } else {
-            Write-Host "WARNING: No randombeamx .f06 file found"
-          }
-
-          # Move randombeamx OP2 file
-          $op2 = Get-ChildItem -Name "*randombeamx*.op2*","*RandomBeamX*.op2*" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($op2) {
-            move $op2 baseline\randombeamx.op2
-            Write-Host "Moved $op2 to baseline\randombeamx.op2"
-          } else {
-            Write-Host "WARNING: No randombeamx .op2 file found"
-          }
-
-          # Move MASTER file
-          $master = Get-ChildItem -Name "*.MASTER" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($master) {
-            move $master baseline\
-            Write-Host "Moved $master to baseline\"
-          } else {
-            Write-Host "WARNING: No .MASTER file found"
-          }
-
-          # Move fixed_base_beam.f06 (contains modal frequencies)
-          if (Test-Path "fixed_base_beam.f06") {
-            move fixed_base_beam.f06 baseline\
-            Write-Host "Moved fixed_base_beam.f06 to baseline\"
-          } else {
-            Write-Host "WARNING: No fixed_base_beam.f06 file found"
-          }
-
-          # Move fixed_base_beam.op2 (contains mode shapes)
-          if (Test-Path "fixed_base_beam.op2") {
-            move fixed_base_beam.op2 baseline\
-            Write-Host "Moved fixed_base_beam.op2 to baseline\"
-          } else {
-            Write-Host "WARNING: No fixed_base_beam.op2 file found"
-          }
-
-      - name: Extract PCH to CSV
-        run: |
-          $pch = Get-ChildItem baseline\*.pch -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($pch) {
-            copy $pch.FullName .
-            & "${{ vars.PYTHON_PATH }}" Scripts\Pch_TO_CSV2.py
-          } else {
-            Write-Error "No .pch file found in baseline"
-            exit 1
-          }
-
-      - name: Save all results to baseline folder
-        run: |
-          copy acceleration_results.csv baseline\
-          copy displacement_results.csv baseline\
-          copy *.png baseline\
-          Write-Host "=== Baseline folder contents ==="
-          dir baseline\
-
-      - name: Set outputs
-        id: outputs
-        run: |
-          echo "pch_path=baseline/randombeamx.pch" >> $env:GITHUB_OUTPUT
-          echo "baseline_ready=true" >> $env:GITHUB_OUTPUT
-          Write-Host "Baseline outputs set [PASS]"
-
-      - name: Commit baseline to Git
+- name: Commit baseline to Git
         if: ${{ github.event_name == 'workflow_dispatch' || inputs.commit_results == true }}
         run: |
-          # Add PortableGit to PATH
-          $env:Path += ";C:\Users\waynelee\Desktop\PortableGit\cmd;C:\Users\waynelee\Desktop\PortableGit\bin"
+          $git = "${{ vars.GIT_PATH }}"
           
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
+          & $git config user.name "GitHub Actions"
+          & $git config user.email "actions@github.com"
           
           # Force add files that might be in .gitignore
-          git add -f baseline\randombeamx.pch
-          git add -f baseline\randombeamx.f06
-          git add -f baseline\randombeamx.op2
-          git add -f baseline\fixed_base_beam.MASTER
-          git add -f baseline\fixed_base_beam.f06
-          git add -f baseline\fixed_base_beam.op2
-          git add -f baseline\*.csv
-          git add -f baseline\*.png
-          git add -f baseline\Bush.blk
-          git add Bush.blk
-          git status
+          & $git add -f baseline\randombeamx.pch
+          & $git add -f baseline\randombeamx.f06
+          & $git add -f baseline\randombeamx.op2
+          & $git add -f baseline\fixed_base_beam.MASTER
+          & $git add -f baseline\fixed_base_beam.f06
+          & $git add -f baseline\fixed_base_beam.op2
+          & $git add -f baseline\*.csv
+          & $git add -f baseline\*.png
+          & $git add -f baseline\Bush.blk
+          & $git add Bush.blk
+          & $git status
           
-          $status = git status --porcelain
+          $status = & $git status --porcelain
           if ($status) {
-            git commit -m "Update baseline - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
-            git push
+            & $git commit -m "Update baseline - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+            & $git push
             Write-Host "Baseline committed to Git [PASS]"
           } else {
             Write-Host "No changes to commit"
           }
-
-      - name: Skip commit notice
-        if: ${{ github.event_name == 'workflow_call' && inputs.commit_results == false }}
-        run: |
-          Write-Host "Skipping Git commit (commit_results=false)"
-          Write-Host "Baseline files are available locally but not committed"
