@@ -165,7 +165,7 @@
       https://hexagon.com/support-success/manufacturing-intelligence/
       design-engineering-support/training-materials
   
-1                                                                           JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     1
+1                                                                           JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE     1
                                                                                                                                     
 0        N A S T R A N    F I L E    A N D    S Y S T E M    P A R A M E T E R    E C H O                                           
 0                                                                                                                                   
@@ -176,7 +176,7 @@
      NASTRAN BUFFSIZE=65537 $(C:/PROGRAM FILES/MSC.SOFTWARE/MSC_NASTRAN/2025.1/CONF/N
      $INIT MASTER(S)                                                                 
      NASTRAN SYSTEM(442)=-1,SYSTEM(319)=1                                            
-1                                                                           JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     2
+1                                                                           JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE     2
                                                                                                                                     
 0        N A S T R A N    E X E C U T I V E    C O N T R O L    E C H O                                                             
 0                                                                                                                                   
@@ -185,7 +185,7 @@
      ID BASIC,FEMAP                                                                          
      SOL SEMODES                                                                             
      CEND                                                                                    
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     3
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE     3
                                                                                                                                     
 0                                                                                                                                   
 0                                        C A S E    C O N T R O L    E C H O                                                        
@@ -202,14 +202,14 @@
                   9        METHOD = 1                                                                            
                  10        SPC = 1                                                                               
                  11      BEGIN BULK                                                                              
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     4
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE     4
                                                                                                                                     
 0                                                                                                                                   
                                               I N P U T   B U L K   D A T A   E C H O                                               
                  ENTRY                                                                                                              
                  COUNT        .   1  ..   2  ..   3  ..   4  ..   5  ..   6  ..   7  ..   8  ..   9  ..  10  .                      
                               $INCLUDE "C:\Users\waynelee\Desktop\actions-runner\_work\Thesis_Workflow\Thesis_Workflow\Bush.blk"
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     5
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE     5
                                                                                                                                     
 0                                                                                                                                   
                                         M O D E L   S U M M A R Y          BULK = 0
@@ -235,7 +235,7 @@
      (MAXIMUM SIZE OF FORTRAN RECORDS WRITTEN =          7 WORDS.)
            (NUMBER OF FORTRAN RECORDS WRITTEN =          8 RECORDS.)
                 (TOTAL DATA WRITTEN FOR LABEL =         17 WORDS.)
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     6
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE     6
                                                                                                                                     
 0                                                                                                                                   
                            O U T P U T   F R O M   G R I D   P O I N T   W E I G H T   G E N E R A T O R
@@ -269,10 +269,10 @@
                                            *  0.000000E+00  1.000000E+00  0.000000E+00 *
                                            *  0.000000E+00  0.000000E+00  1.000000E+00 *
 
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     7
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE     7
                                                                                                                                     
 0                                                                                                                                   
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     8
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE     8
                                                                                                                                     
 0                                                                                                                                   
 0 RESULTANTS ABOUT ORIGIN OF SUPERELEMENT BASIC COORDINATE SYSTEM IN SUPERELEMENT BASIC SYSTEM COORDINATES.
@@ -307,7 +307,7 @@
      1.        1.2862942E+08          1.8050544E+03                 5                       10
      2.        2.3625851E+09          7.7359538E+03                10                        0
 
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE     9
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE     9
                                                                                                                                     
 0                                                                                                                                   
 0
@@ -325,7 +325,7 @@
 
                                      NUMBER OF SOLVES REQUIRED ............     7
 
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    10
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    10
                                                                                                                                     
 0                                                                                                                                   
  
@@ -342,7 +342,7 @@
         8         8        1.084360E+09        3.292962E+04        5.240912E+03        1.000000E+00        1.084360E+09
         9         9        1.598935E+09        3.998669E+04        6.364079E+03        1.000000E+00        1.598935E+09
        10        10        1.800939E+09        4.243747E+04        6.754133E+03        1.000000E+00        1.800939E+09
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    11
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    11
                                                                                                                                     
 0                                                                                                                                   
 
@@ -380,7 +380,7 @@
                        *   0.000000E+00  0.000000E+00  0.000000E+00  0.000000E+00  0.000000E+00  7.843362E-02 *
                        ***                                                                                  ***
 
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    12
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    12
                                                                                                                                     
 0                                                                                                                                   
 
@@ -401,7 +401,7 @@
        9    6.364079E+03      1.464561E-20      8.988108E-01      2.219010E-02      9.450709E-01      6.277407E-19      9.391817E-01
       10    6.754133E+03      4.663251E-02      9.454433E-01      8.967806E-21      9.450709E-01      2.679840E-17      9.391817E-01
 
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    13
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    13
                                                                                                                                     
 0                                                                                                                                   
 
@@ -422,7 +422,7 @@
        9    6.364079E+03      2.687473E-07      9.999999E-01      3.511407E-23      9.992351E-01      5.054563E-18      5.524943E-18
       10    6.754133E+03      3.146097E-24      9.999999E-01      4.768273E-04      9.997119E-01      8.707802E-17      9.260297E-17
 
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    14
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    14
                                                                                                                                     
 0                                                                                                                                   
 
@@ -445,7 +445,7 @@
                   TOTAL      -3.546033E-02     -1.826035E-02     -5.214782E-02      2.440936E+01     -2.232392E+01      3.050975E-09
 
 
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    15
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    15
                                                                                                                                     
 0                                                                                                                                   
 
@@ -468,7 +468,7 @@
                   TOTAL       1.718608E-03      1.717931E-03      1.707226E-03      6.089563E+02      6.087809E+02      7.263185E-18
 
 
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    16
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    16
                                                                                                                                     
 0                                                                                                                                   
 
@@ -493,7 +493,7 @@
 
  *** USER INFORMATION MESSAGE 2486 (GETMODE1)
      GETMODE1 - best guess is that mode 1 is the first elastic mode
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    17
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    17
                                                                                                                                     
 0                                                                                                                                   
 0 RESULTANTS ABOUT ORIGIN OF SUPERELEMENT BASIC COORDINATE SYSTEM IN SUPERELEMENT BASIC SYSTEM COORDINATES.
@@ -603,7 +603,7 @@
      (MAXIMUM SIZE OF FORTRAN RECORDS WRITTEN =         168 WORDS.)
            (NUMBER OF FORTRAN RECORDS WRITTEN =         110 RECORDS.)
            (TOTAL DATA WRITTEN FOR DATA BLOCK =        3245 WORDS.)
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    18
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    18
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  1.544794E+05
@@ -616,7 +616,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BEAM     SUBTOTAL        4.478410E+03                 5.7981
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    19
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    19
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  1.544794E+05
@@ -629,7 +629,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BUSH     SUBTOTAL        7.276128E+04                94.2019
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    20
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    20
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  2.535256E+06
@@ -642,7 +642,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BEAM     SUBTOTAL        1.238185E+06                97.6773
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    21
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    21
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  2.535256E+06
@@ -655,7 +655,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BUSH     SUBTOTAL        2.944284E+04                 2.3227
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    22
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    22
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  4.797326E+07
@@ -668,7 +668,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BEAM     SUBTOTAL        2.210369E+07                92.1501
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    23
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    23
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  4.797326E+07
@@ -681,7 +681,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BUSH     SUBTOTAL        1.882937E+06                 7.8499
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    24
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    24
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  8.711152E+07
@@ -694,7 +694,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BEAM     SUBTOTAL        3.807485E+07                87.4163
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    25
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    25
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  8.711152E+07
@@ -707,7 +707,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BUSH     SUBTOTAL        5.480906E+06                12.5837
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    26
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    26
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  1.222720E+08
@@ -720,7 +720,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BEAM     SUBTOTAL        3.064910E+05                 0.5013
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    27
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    27
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  1.222720E+08
@@ -733,7 +733,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BUSH     SUBTOTAL        6.082951E+07                99.4987
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    28
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    28
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  4.347924E+08
@@ -746,7 +746,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BEAM     SUBTOTAL        1.834353E+08                84.3783
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    29
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    29
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  4.347924E+08
@@ -759,7 +759,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BUSH     SUBTOTAL        3.396092E+07                15.6217
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    30
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    30
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  5.755257E+08
@@ -772,7 +772,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BEAM     SUBTOTAL        2.154891E+08                74.8843
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    31
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    31
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  5.755257E+08
@@ -785,7 +785,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BUSH     SUBTOTAL        7.227373E+07                25.1157
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    32
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    32
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  1.084360E+09
@@ -798,7 +798,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BEAM     SUBTOTAL        2.599728E+06                 0.4795
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    33
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    33
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  1.084360E+09
@@ -811,7 +811,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BUSH     SUBTOTAL        5.395803E+08                99.5205
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    34
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    34
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  1.598935E+09
@@ -824,7 +824,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BEAM     SUBTOTAL        5.781802E+08                72.3207
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    35
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    35
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  1.598935E+09
@@ -837,7 +837,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BUSH     SUBTOTAL        2.212873E+08                27.6793
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    36
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    36
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  1.800939E+09
@@ -850,7 +850,7 @@
                                     ELEMENT-ID          STRAIN-ENERGY           PERCENT OF TOTAL    STRAIN-ENERGY-DENSITY
 
                         TYPE = BEAM     SUBTOTAL        5.542192E+08                61.5478
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    37
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    37
                                                                                                                                     
 0                                                                                                                                   
       EIGENVALUE =  1.800939E+09
@@ -881,7 +881,7 @@
            (TOTAL DATA WRITTEN FOR DATA BLOCK =        3964 WORDS.)
  *** USER INFORMATION MESSAGE 4114 (OUTPX2)
      DATA BLOCK OEF1X    WRITTEN ON FORTRAN UNIT    12 IN BINARY (LTLEND) FORMAT USING NDDL DESCRIPTION FOR OEF1X, TRL =
-                    101                63                 1                 8                26                 0                 2
+                    101                63                 1                23                26                 0                 2
      NAME OF DATA BLOCK WRITTEN ON FORTRAN UNIT IS OEF1X   
         (MAXIMUM POSSIBLE FORTRAN RECORD SIZE =      131074 WORDS.)
      (MAXIMUM SIZE OF FORTRAN RECORDS WRITTEN =        1000 WORDS.)
@@ -892,7 +892,7 @@
                                  (MAXIMUM SIZE OF FORTRAN RECORDS WRITTEN =      1 WORDS.)
                                        (NUMBER OF FORTRAN RECORDS WRITTEN =      1 RECORDS.)
                                        (TOTAL DATA WRITTEN FOR EOF MARKER =      1 WORDS.)
-1    FIXED BASE MODES                                                       JANUARY   8, 2026  MSC Nastran  6/ 9/25   PAGE    38
+1    FIXED BASE MODES                                                       JANUARY  23, 2026  MSC Nastran  6/ 9/25   PAGE    38
                                                                                                                                     
 0                                                                                                                                   
  * * * *  D B D I C T   P R I N T  * * * *      SUBDMAP = PRTSUM  ,  DMAP STATEMENT NO.     75
