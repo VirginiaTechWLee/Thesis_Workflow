@@ -236,6 +236,9 @@ jobs:
       - name: Commit baseline to Git
         if: ${{ github.event_name == 'workflow_dispatch' || inputs.commit_results == true }}
         run: |
+          # Add PortableGit to PATH
+          $env:Path += ";C:\Users\waynelee\Desktop\PortableGit\cmd;C:\Users\waynelee\Desktop\PortableGit\bin"
+          
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           
