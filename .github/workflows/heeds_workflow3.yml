@@ -21,16 +21,19 @@ on:
           - overwrite_existing
           - skip_if_exists
           - create_new_timestamp
+          - resume_existing
+          - backup_only
+          - backup_and_rerun
       timeout_minutes:
         description: 'Timeout in minutes'
         required: true
-        default: '120'
+        default: '300'
         type: string
 
 jobs:
   run-heeds-study:
     runs-on: self-hosted
-    timeout-minutes: 180
+    timeout-minutes: 360
 
     steps:
       - name: Checkout repository
@@ -83,6 +86,7 @@ jobs:
           echo "timeout_seconds=$timeoutSec" >> $env:GITHUB_OUTPUT
 
       - name: Kill existing HEEDS processes
+        if: ${{ github.event.inputs.folder_mode != 'backup_only' }}
         shell: powershell
         run: |
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
@@ -111,7 +115,61 @@ jobs:
           }
           Log "========================================================"
 
+      - name: Lightweight Backup (PCH + Bush.blk)
+        if: ${{ github.event.inputs.folder_mode == 'backup_only' || github.event.inputs.folder_mode == 'backup_and_rerun' }}
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          
+          $project = "${{ github.event.inputs.heeds_project }}"
+          $post0 = "${{ vars.HEEDS_WORKING_DIR }}\${project}_Study_1\POST_0"
+          $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+          $backupDir = "D:\thesis_database\POST0_backup_${project}_${timestamp}"
+
+          Log "========================================================"
+          Log "  LIGHTWEIGHT BACKUP (PCH + Bush.blk)"
+          Log "========================================================"
+          Log "Source: $post0"
+          Log "Destination: $backupDir"
+
+          if (-not (Test-Path $post0)) {
+            Log "[WARN] POST_0 folder not found - nothing to back up"
+            Log "========================================================"
+            exit 0
+          }
+
+          $pchs = Get-ChildItem "$post0\Design*\Analysis_1\randombeamx.pch" -ErrorAction SilentlyContinue
+          Log "Found $($pchs.Count) PCH files to back up"
+
+          if ($pchs.Count -eq 0) {
+            Log "[WARN] No PCH files found - nothing to back up"
+            Log "========================================================"
+            exit 0
+          }
+
+          New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+          $count = 0
+          foreach ($pch in $pchs) {
+            $designName = $pch.Directory.Parent.Name
+            $dest = "$backupDir\$designName"
+            New-Item -ItemType Directory -Path $dest -Force | Out-Null
+            Copy-Item $pch.FullName "$dest\randombeamx.pch"
+            $bush = Join-Path $pch.DirectoryName "Bush.blk"
+            if (Test-Path $bush) { Copy-Item $bush "$dest\Bush.blk" }
+            $count++
+            if ($count % 100 -eq 0) { Log "  Backed up $count / $($pchs.Count)" }
+          }
+
+          $sizeMB = [math]::Round((Get-ChildItem $backupDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB, 2)
+          Log ""
+          Log "[SUCCESS] Backup complete!"
+          Log "  Designs backed up: $count"
+          Log "  Backup size: $sizeMB MB"
+          Log "  Location: $backupDir"
+          Log "========================================================"
+
       - name: Handle existing study folder
+        if: ${{ github.event.inputs.folder_mode != 'backup_only' }}
         shell: powershell
         run: |
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
@@ -146,12 +204,23 @@ jobs:
               Log "[SKIP] Folder exists - exiting"
               exit 0
             }
+            elseif ($mode -eq "resume_existing" -or $mode -eq "backup_and_rerun") {
+              $post0 = "$studyFolder\POST_0"
+              $existingPch = (Get-ChildItem "$post0\Design*\Analysis_1\randombeamx.pch" -ErrorAction SilentlyContinue | Measure-Object).Count
+              Log "[RESUME] Keeping existing folder intact"
+              Log "  Existing designs with PCH: $existingPch"
+              Log "  HEEDS will re-run the full study"
+              if ($mode -eq "backup_and_rerun") {
+                Log "  Backup was completed in previous step"
+              }
+            }
           } else {
             Log "[OK] Folder does not exist - will be created by HEEDS"
           }
           Log "========================================================"
 
       - name: Verify HEEDS project file exists
+        if: ${{ github.event.inputs.folder_mode != 'backup_only' }}
         shell: powershell
         run: |
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
@@ -189,6 +258,7 @@ jobs:
           Log "========================================================"
 
       - name: Copy HEEDS file to Documents
+        if: ${{ github.event.inputs.folder_mode != 'backup_only' }}
         shell: powershell
         run: |
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
@@ -214,6 +284,7 @@ jobs:
           Log "========================================================"
 
       - name: Copy required files to working directory
+        if: ${{ github.event.inputs.folder_mode != 'backup_only' }}
         shell: powershell
         run: |
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
@@ -287,6 +358,7 @@ jobs:
           Log "========================================================"
 
       - name: Verify Bush.blk format
+        if: ${{ github.event.inputs.folder_mode != 'backup_only' }}
         shell: powershell
         run: |
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
@@ -314,6 +386,7 @@ jobs:
           Log "========================================================"
 
       - name: Run HEEDS Study
+        if: ${{ github.event.inputs.folder_mode != 'backup_only' }}
         shell: powershell
         run: |
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
@@ -370,7 +443,6 @@ jobs:
 
           Log "SUCCESS: Study folder created!"
 
-          # Monitor progress using POST_0 with file verification (Option B)
           Log ""
           Log "========================================================"
           Log "  MONITORING PROGRESS (POST_0 + PCH/CSV Verification)"
@@ -383,7 +455,6 @@ jobs:
           while ($true) {
             $elapsed = ((Get-Date) - $startTime).TotalSeconds
 
-            # Option B: Count designs where BOTH PCH and CSV exist in POST_0
             $completed = 0
             $designFolders = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
             foreach ($design in $designFolders) {
@@ -441,6 +512,7 @@ jobs:
           }
 
       - name: Validate Results
+        if: ${{ github.event.inputs.folder_mode != 'backup_only' }}
         shell: powershell
         run: |
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
@@ -596,5 +668,16 @@ jobs:
             }
           } else {
             Log "WARNING: Study folder not found"
+          }
+
+          # Show backup info
+          $backups = Get-ChildItem "D:\thesis_database\POST0_backup_*" -Directory -ErrorAction SilentlyContinue
+          if ($backups) {
+            Log ""
+            Log "=== Available Backups ==="
+            foreach ($b in $backups) {
+              $bCount = (Get-ChildItem "$($b.FullName)\Design*" -Directory -ErrorAction SilentlyContinue | Measure-Object).Count
+              Log "  $($b.Name): $bCount designs"
+            }
           }
           Log "========================================================"
