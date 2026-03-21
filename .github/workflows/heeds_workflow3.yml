@@ -12,6 +12,7 @@ on:
           - quick_test
           - full_sweep
           - Square_Beam_scenario_short_rev
+          - bolt3_sweep
       folder_mode:
         description: 'How to handle existing folders'
         required: true
