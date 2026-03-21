@@ -58,6 +58,14 @@
         <anlDontCountAsEvalOnError value="false"/>
         <anlCaptureOutput value="true"/>
         <decimalDelimiter value="fromPortal"/>
+        <VisFile type="data" filename="acceleration_results.csv" source="analysisFolder"/>
+        <VisFile type="data" filename="acceleration_results_delta.csv" source="analysisFolder"/>
+        <VisFile type="image" filename="all_acceleration_dof_T1.png" source="analysisFolder"/>
+        <VisFile type="data" filename="displacement_results_delta.csv" source="analysisFolder"/>
+        <VisFile type="image" filename="all_displacement_dof_T1.png" source="analysisFolder"/>
+        <VisFile type="data" filename="displacement_results.csv" source="analysisFolder"/>
+        <VisFile type="data" filename="randombeamx.pch" source="analysisFolder"/>
+        <VisFile type="data" filename="Bush.blk" source="analysisFolder"/>
         <Reservation active="false" mode="share"/>
         <FinishCondition ref=""/>
         <RunCondition folder="studyFolder" ref="" resource="LOCAL"/>
