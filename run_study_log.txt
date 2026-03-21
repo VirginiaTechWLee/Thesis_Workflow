@@ -180,3 +180,11 @@ study.wait() completed!
 ============================================================
 Study run complete!
 ============================================================
+============================================================
+HEEDS Study Runner
+============================================================
+Project: C:\Users\waynelee\Documents\full_sweep.heeds
+Opening project...
+Project loaded: <HEEDS._wrappers.Project object at 0x000002405EC13F10>
+Study loaded: <HEEDS._wrappers.Study object at 0x000002405E863790>
+Starting study.run()...
