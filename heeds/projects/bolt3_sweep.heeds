@@ -16,6 +16,11 @@
   <!--Project Data-->
   <Meta name="scriptEngine">Python3</Meta>
 
+  <!--HEEDS.Attribute.Condition — check Nastran completion in .f06-->
+  <Condition name="Condition_1">
+    <Item type="FileContain" anlRef="HEEDS.Analysis.File.MDO.Analysis_1" findRef="HEEDS.Output.File.randombeamx.f06" findText="* * * END OF JOB * * *" op="and"/>
+  </Condition>
+
   <!--HEEDS.Attribute.Set — discrete stiffness levels for bolt 3 rotational DOFs-->
   <Set name="set_bolt3_K" ordered="1">
     <Item value="1.+6"/>
@@ -51,7 +56,7 @@
         <anlCommand value="FBM_TO_DBALL.bat"/>
         <anlArgs value=""/>
         <anlShell value="cmd.exe"/>
-        <anlFolder value="analysisFolder"/>
+        <anlFolder value="designFolder"/>
         <anlErrorMode value="STOP"/>
         <anlInfeasibleMode value="CONTINUE"/>
         <anlCreateNewDesignOnError value="false"/>
@@ -66,9 +71,11 @@
         <VisFile type="data" filename="displacement_results.csv" source="analysisFolder"/>
         <VisFile type="data" filename="randombeamx.pch" source="analysisFolder"/>
         <VisFile type="data" filename="Bush.blk" source="analysisFolder"/>
+        <Command command="&quot;C:\\HEEDS\MDO\Ver2510\Python3\python.exe&quot; Pch_TO_CSV2.py" event="postAnalysis" folder="designFolder" useRval="0" value="0"/>
+        <primaryInput ref="HEEDS.Input.File.Fixed_base_beam.dat"/>
         <Reservation active="false" mode="share"/>
-        <FinishCondition ref=""/>
-        <RunCondition folder="studyFolder" ref="" resource="LOCAL"/>
+        <FinishCondition ref="HEEDS.Attribute.Condition.Condition_1"/>
+        <RunCondition folder="designFolder" ref="" resource="LOCAL"/>
         <SuccessCondition ref=""/>
       </Data>
 
@@ -119,8 +126,15 @@
         </Input>
       </Inputs>
 
-      <!--Outputs — CSV results from post-processing-->
+      <!--Outputs — Nastran .f06 for completion check + CSV results from post-processing-->
       <Outputs>
+        <Output type="file" path="randombeamx.f06">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
+            <widths list="int">10</widths>
+          </Data>
+        </Output>
         <Output type="file" path="acceleration_results.csv">
           <Data>
             <source value="analysisFolder"/>
@@ -159,7 +173,7 @@
   </Process>
 
   <!--HEEDS.Study — User Design Set sweep (5 evaluations)-->
-  <Study name="Bolt3_Sweep" current="true" id="1" prefix="HEEDS" randomSeed="0.1" resVer="2510.0.251003" status="New">
+  <Study name="Study_1" current="true" id="1" prefix="HEEDS" randomSeed="0.1" resVer="2510.0.251003" status="New">
     <Meta name="aviewTimeMode">total</Meta>
     <Meta name="msgsel">study</Meta>
     <RunOptions>
