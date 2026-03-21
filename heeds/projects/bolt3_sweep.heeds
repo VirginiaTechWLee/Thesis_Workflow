@@ -46,7 +46,7 @@
   <Process name="Process_1" current="true" parallel="false">
 
     <!--HEEDS.Analysis.File.MDO — Nastran modal analysis via batch file-->
-    <MDO name="Nastran_Modal" active="true" solver="General">
+    <MDO name="Analysis_1" active="true" solver="General">
       <Data type="MDO" resource="Local" useMaxTime="true">
         <anlCommand value="FBM_TO_DBALL.bat"/>
         <anlArgs value=""/>
@@ -154,7 +154,7 @@
 
     <!--Execution Order-->
     <AnalysisGroup type="Serial">
-      <Analysis ref="HEEDS.Analysis.File.MDO.Nastran_Modal"/>
+      <Analysis ref="HEEDS.Analysis.File.MDO.Analysis_1"/>
     </AnalysisGroup>
   </Process>
 
@@ -184,7 +184,7 @@
     <!--HEEDS.Agent — User Design Sets (deterministic sweep, not optimization)-->
     <Agent name="Sweep_1" type="UDS" checksum="" evalFolder="" id="0" method="User Design Set" numEvalsTotal="5" outputPrecision="16" prefix="HEEDS" saveErrorMode="saveOnly" saveMode="LatestBest">
       <SnapShot name="analysisLoops" value=""/>
-      <SnapShot name="analysisNames" list="Nastran_Modal"/>
+      <SnapShot name="analysisNames" list="Analysis_1"/>
       <SnapShot name="process" value="Process_1"/>
       <Process ref="HEEDS.Process.Process_1"/>
 
@@ -207,7 +207,7 @@
         <SnapShot name="exposed" value="true"/>
         <SnapShot name="isText" value="false"/>
         <SnapShot name="required" value="true"/>
-        <SnapShot name="strAnalysis" value="Nastran_Modal"/>
+        <SnapShot name="strAnalysis" value="Analysis_1"/>
         <SnapShot name="strType" value="File"/>
         <SnapShot name="update" value="required"/>
       </Response>
@@ -215,7 +215,7 @@
         <SnapShot name="exposed" value="true"/>
         <SnapShot name="isText" value="false"/>
         <SnapShot name="required" value="true"/>
-        <SnapShot name="strAnalysis" value="Nastran_Modal"/>
+        <SnapShot name="strAnalysis" value="Analysis_1"/>
         <SnapShot name="strType" value="File"/>
         <SnapShot name="update" value="required"/>
       </Response>
