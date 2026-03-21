@@ -69,6 +69,7 @@ jobs:
             "quick_test" { 4 }
             "full_sweep" { 576 }
             "Square_Beam_scenario_short_rev" { 576 }
+            "bolt3_sweep" { 5 }
             default { 576 }
           }
 

@@ -1,27 +1,20 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <!DOCTYPE HEEDSProject>
 <!--       HEEDS Data Model document
-    Copyright (c) 2025 Siemens. All rights reserved.
+    Copyright (c) 2024 Siemens. All rights reserved.
 
-    Bolt 3 Parametric Sweep — 5 stiffness levels
+    Bolt 3 Parametric Sweep - 5 stiffness levels
     Generated for thesis bolt-looseness detection pipeline
-    Based on cantilever.heeds schema reference
+    Modeled after working quick_test.heeds (HEEDS 2410 compatible)
 
     Bolt 3 K4=K5=K6 swept: 1e6, 1e7, 1e8, 1e10, 1e12
-    All other bolts at healthy baseline.
-    Bolt 1 (driving CBUSH): K4=1e8, K5=K6=1e12  (always fixed)
-    Bolts 2, 4-10: K4=K5=K6=1e12 (healthy)
+    All other bolts remain at baseline values in Bush.blk
 -->
-<Project app="HEEDSMDO" build="251003" version="2510.0">
+<Project app="HEEDSMDO" build="241030" version="2410.0">
   <!--Project Data-->
   <Meta name="scriptEngine">Python3</Meta>
 
-  <!--HEEDS.Attribute.Condition — check Nastran completion in .f06-->
-  <Condition name="Condition_1">
-    <Item type="FileContain" anlRef="HEEDS.Analysis.File.MDO.Analysis_1" findRef="HEEDS.Output.File.randombeamx.f06" findText="* * * END OF JOB * * *" op="and"/>
-  </Condition>
-
-  <!--HEEDS.Attribute.Set — discrete stiffness levels for bolt 3 rotational DOFs-->
+  <!--HEEDS.Attribute.Set-->
   <Set name="set_bolt3_K" ordered="1">
     <Item value="1.+6"/>
     <Item value="1.+7"/>
@@ -30,27 +23,33 @@
     <Item value="1.+12"/>
   </Set>
 
-  <!--HEEDS.Parameter.Variable — bolt 3 rotational stiffness (K4, K5, K6 swept together)-->
+  <!--HEEDS.Attribute.Condition-->
+  <Condition name="Condition_1">
+    <Item type="FileContain" anlRef="HEEDS.Analysis.File.MDO.Analysis_1" findRef="HEEDS.Output.File.randombeamx.f06" findText="* * * END OF JOB * * *" op="and"/>
+  </Condition>
+
+  <!--HEEDS.Parameter.Variable-->
   <Variable name="K4_bolt3" flags="2048" numInTags="1"/>
   <Variable name="K5_bolt3" flags="2048" numInTags="1"/>
   <Variable name="K6_bolt3" flags="2048" numInTags="1"/>
 
-  <!--HEEDS.Parameter.Response — modal frequencies from Nastran SOL SEMODES-->
-  <Response name="Mode1_Freq" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>
-  <Response name="Mode2_Freq" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>
-  <Response name="Mode3_Freq" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>
-  <Response name="Mode4_Freq" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>
-  <Response name="Mode5_Freq" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>
-  <Response name="Mode6_Freq" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>
-  <Response name="Mode7_Freq" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>
-  <Response name="Mode8_Freq" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>
-  <Response name="Mode9_Freq" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>
-  <Response name="Mode10_Freq" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>
+  <!--HEEDS.Parameter.Response-->
+  <Response name="Response_Array" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>
+  <Response name="Modes1" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[1-1]"/>
+  <Response name="Modes2" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[2-1]"/>
+  <Response name="Modes3" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[3-1]"/>
+  <Response name="Modes4" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[4-1]"/>
+  <Response name="Modes5" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[5-1]"/>
+  <Response name="Modes6" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[6-1]"/>
+  <Response name="Modes7" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[7-1]"/>
+  <Response name="Modes8" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[8-1]"/>
+  <Response name="Modes9" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[9-1]"/>
+  <Response name="Modes10" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[10-1]"/>
 
   <!--HEEDS.Process-->
   <Process name="Process_1" current="true" parallel="false">
 
-    <!--HEEDS.Analysis.File.MDO — Nastran modal analysis via batch file-->
+    <!--HEEDS.Analysis.File.MDO-->
     <MDO name="Analysis_1" active="true" solver="General">
       <Data type="MDO" resource="Local" useMaxTime="true">
         <anlCommand value="FBM_TO_DBALL.bat"/>
@@ -65,13 +64,13 @@
         <decimalDelimiter value="fromPortal"/>
         <VisFile type="data" filename="acceleration_results.csv" source="analysisFolder"/>
         <VisFile type="data" filename="acceleration_results_delta.csv" source="analysisFolder"/>
-        <VisFile type="image" filename="all_acceleration_dof_T1.png" source="analysisFolder"/>
-        <VisFile type="data" filename="displacement_results_delta.csv" source="analysisFolder"/>
-        <VisFile type="image" filename="all_displacement_dof_T1.png" source="analysisFolder"/>
         <VisFile type="data" filename="displacement_results.csv" source="analysisFolder"/>
+        <VisFile type="data" filename="displacement_results_delta.csv" source="analysisFolder"/>
+        <VisFile type="image" filename="all_acceleration_dof_T1.png" source="analysisFolder"/>
+        <VisFile type="image" filename="all_displacement_dof_T1.png" source="analysisFolder"/>
         <VisFile type="data" filename="randombeamx.pch" source="analysisFolder"/>
         <VisFile type="data" filename="Bush.blk" source="analysisFolder"/>
-        <Command command="&quot;C:\\HEEDS\MDO\Ver2510\Python3\python.exe&quot; Pch_TO_CSV2.py" event="postAnalysis" folder="designFolder" useRval="0" value="0"/>
+        <Command command="&quot;C:\\HEEDS\MDO\Ver2410\Python3\python.exe&quot; Pch_TO_CSV2.py" event="postAnalysis" folder="designFolder" useRval="0" value="0"/>
         <primaryInput ref="HEEDS.Input.File.Fixed_base_beam.dat"/>
         <Reservation active="false" mode="share"/>
         <FinishCondition ref="HEEDS.Attribute.Condition.Condition_1"/>
@@ -79,7 +78,7 @@
         <SuccessCondition ref=""/>
       </Data>
 
-      <!--Inputs — Bush.blk with tagged stiffness fields for bolt 3-->
+      <!--Inputs-->
       <Inputs>
         <Input type="file" path="Bush.blk">
           <Data>
@@ -87,23 +86,21 @@
             <target value="analysisFolder"/>
             <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
             <widths list="int">8</widths>
-            <!--
-              Bush.blk layout (Nastran fixed-width 8-char fields):
-                Col:  1-8     9-16    17-24   25-32   33-40   41-48   49-56   57-64
-                      PBUSH   PID     K       K1      K2      K3      K4      K5      K6
-
-              Bolt 3 is row 3 (1-indexed).
-              K4 = field 7 (charPos 48), K5 = field 8 (charPos 56), K6 = field 9 (charPos 64)
-            -->
-            <Tag key="K4_bolt3" mode="fixed" row="3" col="7" ref="HEEDS.Parameter.Variable.K4_bolt3"/>
-            <Tag key="K5_bolt3" mode="fixed" row="3" col="8" ref="HEEDS.Parameter.Variable.K5_bolt3"/>
-            <Tag key="K6_bolt3" mode="fixed" row="3" col="9" ref="HEEDS.Parameter.Variable.K6_bolt3"/>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+            <Tag charCol="48" col="6" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K4_bolt3" row="5"/>
+            <Tag charCol="56" col="7" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K5_bolt3" row="5"/>
+            <Tag charCol="64" col="8" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K6_bolt3" row="5"/>
           </Data>
         </Input>
         <Input type="file" path="Fixed_base_beam.dat">
           <Data>
             <source value="projectFolder"/>
             <target value="analysisFolder"/>
+            <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
+            <widths list="int">8</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
           </Data>
         </Input>
         <Input type="file" path="RandomBeamX.dat">
@@ -126,13 +123,37 @@
         </Input>
       </Inputs>
 
-      <!--Outputs — Nastran .f06 for completion check + CSV results from post-processing-->
+      <!--Outputs-->
       <Outputs>
+        <Output type="file" path="fixed_base_beam.f06">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
+            <widths list="int">8</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+            <Tag mode="script" ref="HEEDS.Parameter.Response.Response_Array"><![CDATA[SET_PARAMETER_LIST(%names%) $ auto-generated parameter name list
+GOTO_STRING('FRACTION', 3)
+MOVE_DOWN(2)
+GET_COLUMN_FREE(2, -1,',= ')]]></Tag>
+          </Data>
+        </Output>
         <Output type="file" path="randombeamx.f06">
           <Data>
             <source value="analysisFolder"/>
             <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
             <widths list="int">10</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+        <Output type="file" path="randombeamx.pch">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
           </Data>
         </Output>
         <Output type="file" path="acceleration_results.csv">
@@ -140,6 +161,7 @@
             <source value="analysisFolder"/>
             <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
             <widths list="int">10</widths>
+            <Meta name="hidden" value=""/>
           </Data>
         </Output>
         <Output type="file" path="displacement_results.csv">
@@ -147,6 +169,7 @@
             <source value="analysisFolder"/>
             <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
             <widths list="int">10</widths>
+            <Meta name="hidden" value=""/>
           </Data>
         </Output>
         <Output type="file" path="acceleration_results_delta.csv">
@@ -154,6 +177,7 @@
             <source value="analysisFolder"/>
             <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
             <widths list="int">10</widths>
+            <Meta name="hidden" value=""/>
           </Data>
         </Output>
         <Output type="file" path="displacement_results_delta.csv">
@@ -161,6 +185,7 @@
             <source value="analysisFolder"/>
             <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
             <widths list="int">10</widths>
+            <Meta name="hidden" value=""/>
           </Data>
         </Output>
       </Outputs>
@@ -172,8 +197,8 @@
     </AnalysisGroup>
   </Process>
 
-  <!--HEEDS.Study — User Design Set sweep (5 evaluations)-->
-  <Study name="Study_1" current="true" id="1" prefix="HEEDS" randomSeed="0.1" resVer="2510.0.251003" status="New">
+  <!--HEEDS.Study-->
+  <Study name="Study_1" current="true" id="1" postfolder="POST_0" prefix="HEEDS" randomSeed="0.1" status="NotStarted">
     <Meta name="aviewTimeMode">total</Meta>
     <Meta name="msgsel">study</Meta>
     <RunOptions>
@@ -188,80 +213,65 @@
       <ScriptExecution value="false"/>
       <SharedDesignsFirst value="first"/>
       <SkipFirstEvalCheck value="false"/>
-      <UseBaseline value="true"/>
+      <UseBaseline value="false"/>
       <VerboseExec value="false"/>
       <VerboseScript value="false"/>
       <VerboseSearch value="false"/>
       <WaitLicense value="false"/>
     </RunOptions>
 
-    <!--HEEDS.Agent — User Design Sets (deterministic sweep, not optimization)-->
-    <Agent name="Sweep_1" type="UDS" checksum="" evalFolder="" id="0" method="User Design Set" numEvalsTotal="5" outputPrecision="16" prefix="HEEDS" saveErrorMode="saveOnly" saveMode="LatestBest">
-      <SnapShot name="analysisLoops" value=""/>
-      <SnapShot name="analysisNames" list="Analysis_1"/>
-      <SnapShot name="process" value="Process_1"/>
+    <!--HEEDS.Agent-->
+    <Agent name="Sweep_1" type="EVAL" evalFolder="" id="0" outputPrecision="16" postfolder="POST_0" prefix="HEEDS" saveErrorMode="saveOnly" saveMode="None">
       <Process ref="HEEDS.Process.Process_1"/>
 
-      <!--HEEDS.AgentParameter.Variable — bolt 3 K4/K5/K6 as discrete variables-->
-      <Variable name="K4_bolt3" type="Discrete" baseline="1.+12" ref="HEEDS.Parameter.Variable.K4_bolt3" set_ref="HEEDS.Attribute.Set.set_bolt3_K" snapshot="true" state="Required">
-        <SnapShot name="choices" list="1.+6;1.+7;1.+8;1.+10;1.+12"/>
-        <SnapShot name="exposed" value="true"/>
-      </Variable>
-      <Variable name="K5_bolt3" type="Discrete" baseline="1.+12" ref="HEEDS.Parameter.Variable.K5_bolt3" set_ref="HEEDS.Attribute.Set.set_bolt3_K" snapshot="true" state="Required">
-        <SnapShot name="choices" list="1.+6;1.+7;1.+8;1.+10;1.+12"/>
-        <SnapShot name="exposed" value="true"/>
-      </Variable>
-      <Variable name="K6_bolt3" type="Discrete" baseline="1.+12" ref="HEEDS.Parameter.Variable.K6_bolt3" set_ref="HEEDS.Attribute.Set.set_bolt3_K" snapshot="true" state="Required">
-        <SnapShot name="choices" list="1.+6;1.+7;1.+8;1.+10;1.+12"/>
-        <SnapShot name="exposed" value="true"/>
-      </Variable>
+      <!--HEEDS.AgentParameter.Variable-->
+      <Variable name="K4_bolt3" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K4_bolt3" set_ref="HEEDS.Attribute.Set.set_bolt3_K" state="Required"/>
+      <Variable name="K5_bolt3" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K5_bolt3" set_ref="HEEDS.Attribute.Set.set_bolt3_K" state="Required"/>
+      <Variable name="K6_bolt3" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K6_bolt3" set_ref="HEEDS.Attribute.Set.set_bolt3_K" state="Required"/>
 
       <!--HEEDS.AgentParameter.Response-->
-      <Response name="Mode1_Freq" ref="HEEDS.Parameter.Response.Mode1_Freq" snapshot="true" state="Required">
-        <SnapShot name="exposed" value="true"/>
-        <SnapShot name="isText" value="false"/>
-        <SnapShot name="required" value="true"/>
-        <SnapShot name="strAnalysis" value="Analysis_1"/>
-        <SnapShot name="strType" value="File"/>
-        <SnapShot name="update" value="required"/>
-      </Response>
-      <Response name="Mode2_Freq" ref="HEEDS.Parameter.Response.Mode2_Freq" snapshot="true" state="Required">
-        <SnapShot name="exposed" value="true"/>
-        <SnapShot name="isText" value="false"/>
-        <SnapShot name="required" value="true"/>
-        <SnapShot name="strAnalysis" value="Analysis_1"/>
-        <SnapShot name="strType" value="File"/>
-        <SnapShot name="update" value="required"/>
-      </Response>
+      <Response name="Response_Array" ref="HEEDS.Parameter.Response.Response_Array" state="Required"/>
+      <Response name="Modes1" ref="HEEDS.Parameter.Response.Modes1" state="Included"/>
+      <Response name="Modes2" ref="HEEDS.Parameter.Response.Modes2" state="Included"/>
+      <Response name="Modes3" ref="HEEDS.Parameter.Response.Modes3" state="Included"/>
+      <Response name="Modes4" ref="HEEDS.Parameter.Response.Modes4" state="Included"/>
+      <Response name="Modes5" ref="HEEDS.Parameter.Response.Modes5" state="Included"/>
+      <Response name="Modes6" ref="HEEDS.Parameter.Response.Modes6" state="Included"/>
+      <Response name="Modes7" ref="HEEDS.Parameter.Response.Modes7" state="Included"/>
+      <Response name="Modes8" ref="HEEDS.Parameter.Response.Modes8" state="Included"/>
+      <Response name="Modes9" ref="HEEDS.Parameter.Response.Modes9" state="Included"/>
+      <Response name="Modes10" ref="HEEDS.Parameter.Response.Modes10" state="Included"/>
 
-      <MethodData type="UDS">
-        <numEvals value="5"/>
-      </MethodData>
+      <!--HEEDS.UserDesignSet — 5 deterministic designs sweeping bolt 3 stiffness-->
+      <UserDesignSet name="bolt3_sweep">
+        <Design name="bolt3_1e6" map="false" resp="false"/>
+        <Design name="bolt3_1e7" map="false" resp="false"/>
+        <Design name="bolt3_1e8" map="false" resp="false"/>
+        <Design name="bolt3_1e10" map="false" resp="false"/>
+        <Design name="bolt3_1e12" map="false" resp="false"/>
+        <Data><![CDATA[
+ K4_bolt3, K5_bolt3, K6_bolt3
+    1.+6,    1.+6,    1.+6
+    1.+7,    1.+7,    1.+7
+    1.+8,    1.+8,    1.+8
+   1.+10,   1.+10,   1.+10
+   1.+12,   1.+12,   1.+12
+]]></Data>
+      </UserDesignSet>
 
-      <!--User Design Set — 5 deterministic designs sweeping bolt 3 stiffness-->
-      <!--
-        Design 1: K4=K5=K6=1e6   (fully loosened)
-        Design 2: K4=K5=K6=1e7
-        Design 3: K4=K5=K6=1e8
-        Design 4: K4=K5=K6=1e10
-        Design 5: K4=K5=K6=1e12  (healthy baseline)
-      -->
+      <MethodData type="EVAL" numEvals="5"/>
+
       <Designs>
         <data><![CDATA[
- Cycle #, Eval #,       Source,     Status, K4_bolt3, K5_bolt3, K6_bolt3
-       0,      1, UserDesignSet,       NEW,    1.+6,    1.+6,    1.+6
-       0,      2, UserDesignSet,       NEW,    1.+7,    1.+7,    1.+7
-       0,      3, UserDesignSet,       NEW,    1.+8,    1.+8,    1.+8
-       0,      4, UserDesignSet,       NEW,   1.+10,   1.+10,   1.+10
-       0,      5, UserDesignSet,       NEW,   1.+12,   1.+12,   1.+12
+ Cycle #, Eval #, Source, Status
 ]]></data>
       </Designs>
     </Agent>
 
     <!--HEEDS.DesignSet-->
     <DesignSet name="All Designs" type="5" agent="HEEDS.Agent.Sweep_1" flag="62"/>
-    <DesignSet name="Feasible Designs" agent="HEEDS.Agent.Sweep_1" flag="34"/>
     <DesignSet name="Non-Error Designs" type="4" agent="HEEDS.Agent.Sweep_1" flag="46"/>
+    <DesignSet name="bolt3_sweep" agent="HEEDS.Agent.Sweep_1" flag="32" source="bolt3_sweep"/>
   </Study>
 
   <!--HEEDS.Static.Equation-->
