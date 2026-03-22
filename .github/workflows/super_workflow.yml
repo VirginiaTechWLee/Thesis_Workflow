@@ -469,27 +469,13 @@ jobs:
 
           # Check for corrupt database and delete if needed
           if (Test-Path $dbPath) {
-            try {
-              & "${{ vars.PYTHON_PATH }}" -c @"
-import sqlite3, sys
-c = sqlite3.connect('$dbPath')
-r = c.execute('PRAGMA integrity_check').fetchone()
-if r[0] != 'ok':
-    print(f'INTEGRITY FAIL: {r[0]}', file=sys.stderr)
-    sys.exit(1)
-# Also probe the largest table to catch page-level corruption
-try:
-    c.execute('SELECT COUNT(*) FROM psd_data').fetchone()
-except Exception as e:
-    print(f'TABLE CHECK FAIL: {e}', file=sys.stderr)
-    sys.exit(1)
-c.close()
-print('DB integrity OK')
-"@
-              if ($LASTEXITCODE -ne 0) { throw "integrity check failed" }
-            } catch {
-              Log "WARNING: Database corrupt, deleting and recreating"
-              Remove-Item $dbPath -Force
+            $dbPathFwd = $dbPath.Replace('\', '/')
+            & "${{ vars.PYTHON_PATH }}" -c "import sqlite3,sys;c=sqlite3.connect('$dbPathFwd');r=c.execute('PRAGMA integrity_check').fetchone();ok=r[0]=='ok';c.execute('SELECT COUNT(*) FROM psd_data').fetchone() if ok else None;c.close();sys.exit(0 if ok else 1)"
+            if ($LASTEXITCODE -ne 0) {
+              Log "WARNING: Database corrupt or inaccessible, deleting and recreating"
+              Remove-Item $dbPath -Force -ErrorAction SilentlyContinue
+            } else {
+              Log "Database integrity OK"
             }
           }
 
@@ -578,6 +564,7 @@ print('DB integrity OK')
       - name: Extract features
         shell: powershell
         run: |
+          $ErrorActionPreference = "Continue"
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
 
           $dbPath = "${{ steps.config.outputs.DB_PATH }}"
@@ -606,6 +593,7 @@ print('DB integrity OK')
       - name: Train classifier
         shell: powershell
         run: |
+          $ErrorActionPreference = "Continue"
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
 
           $dbDir = Split-Path "${{ steps.config.outputs.DB_PATH }}"

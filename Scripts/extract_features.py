@@ -48,13 +48,13 @@ def fetch_case_list(conn: sqlite3.Connection) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Structure discovery — no hardcoded node IDs, DOFs, elements, or thresholds
 # ---------------------------------------------------------------------------
-def _find_baseline_cid(cases: pd.DataFrame) -> int:
-    """Return case_id of the baseline case."""
+def _find_baseline_cid(cases: pd.DataFrame):
+    """Return case_id of the baseline case, or None if not found."""
     bl = cases[cases["is_baseline"] == 1]
     if bl.empty:
         bl = cases[cases["case_number"] == 0]
     if bl.empty:
-        raise ValueError("No baseline case found (is_baseline=1 or case_number=0)")
+        return None
     return int(bl.iloc[0]["case_id"])
 
 
@@ -470,6 +470,16 @@ def build_training_matrix(
     conn = connect(db_path)
     cases = fetch_case_list(conn)
     baseline_cid = _find_baseline_cid(cases)
+    has_baseline = baseline_cid is not None
+
+    if not has_baseline:
+        print("  WARNING: No baseline case found — using first case as "
+              "reference for structure discovery. Delta features will be "
+              "skipped and all labels set to 0 (unknown).")
+        # Use first case as reference for node/channel discovery
+        ref_cid = int(cases.iloc[0]["case_id"])
+    else:
+        ref_cid = baseline_cid
     conn.close()
 
     # ------------------------------------------------------------------
@@ -478,26 +488,42 @@ def build_training_matrix(
     print("\n[2/4] Discovering structure ...")
     conn = connect(db_path)
 
-    nodes = discover_nodes(conn, baseline_cid)
+    nodes = discover_nodes(conn, ref_cid)
     print(f"  Nodes ({len(nodes)}): {nodes}")
 
     if spectral_dof and spectral_dtype:
         primary_dof, primary_dtype = spectral_dof, spectral_dtype
         print(f"  Primary channel (user override): {primary_dof} / {primary_dtype}")
     else:
-        primary_dof, primary_dtype = detect_primary_channel(conn, baseline_cid)
+        primary_dof, primary_dtype = detect_primary_channel(conn, ref_cid)
 
-    baseline_params = discover_baseline_params(conn, baseline_cid)
-    print(f"  Bolt elements ({len(baseline_params)}): "
-          f"{sorted(baseline_params.keys())}")
+    if has_baseline:
+        baseline_params = discover_baseline_params(conn, baseline_cid)
+        print(f"  Bolt elements ({len(baseline_params)}): "
+              f"{sorted(baseline_params.keys())}")
+    else:
+        baseline_params = {}
+        print("  Bolt elements: N/A (no baseline)")
     conn.close()
 
     # ------------------------------------------------------------------
     # Stage 3: Build labels (baseline-relative)
     # ------------------------------------------------------------------
-    print("\n[3/4] Building labels (baseline-relative) ...")
+    print("\n[3/4] Building labels ...")
     conn = connect(db_path)
-    labels = build_labels(conn, cases, baseline_params, ratio_threshold)
+    if has_baseline:
+        labels = build_labels(conn, cases, baseline_params, ratio_threshold)
+    else:
+        # No baseline — assign all labels to 0 (unknown/healthy)
+        labels = pd.DataFrame({
+            "case_id": cases["case_id"].values,
+            "case_number": cases["case_number"].values,
+            "loosened_bolt": 0,
+            "min_K": 0.0,
+            "severity": 0,
+            "label_binary": 0,
+        })
+        print(f"  Labels: all {len(labels)} cases set to healthy (no baseline)")
     conn.close()
 
     # ------------------------------------------------------------------
@@ -513,7 +539,7 @@ def build_training_matrix(
     # Stage 4b: Spectral + delta features
     # ------------------------------------------------------------------
     conn = connect(db_path)
-    common_freq = _common_freq_grid(conn, baseline_cid, n_points=256)
+    common_freq = _common_freq_grid(conn, ref_cid, n_points=256)
     conn.close()
 
     spectral_feats, delta_feats = extract_spectral_and_delta_features(
