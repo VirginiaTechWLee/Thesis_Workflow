@@ -465,8 +465,21 @@ jobs:
           Log "  SETTING UP DATABASE"
           Log "========================================================"
 
+          $dbPath = "${{ steps.config.outputs.DB_PATH }}"
+
+          # Check for corrupt database and delete if needed
+          if (Test-Path $dbPath) {
+            try {
+              & "${{ vars.PYTHON_PATH }}" -c "import sqlite3; c=sqlite3.connect('$dbPath'); c.execute('PRAGMA integrity_check'); c.close(); print('DB integrity OK')"
+              if ($LASTEXITCODE -ne 0) { throw "integrity check failed" }
+            } catch {
+              Log "WARNING: Database corrupt, deleting and recreating"
+              Remove-Item $dbPath -Force
+            }
+          }
+
           & "${{ vars.PYTHON_PATH }}" heeds/database/setup_database.py `
-            --db_path "${{ steps.config.outputs.DB_PATH }}"
+            --db_path "$dbPath"
 
           if ($LASTEXITCODE -ne 0) {
             Log "ERROR: Database setup failed"
