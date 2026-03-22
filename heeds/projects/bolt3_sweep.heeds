@@ -250,12 +250,12 @@ GET_COLUMN_FREE(2, -1,',= ')]]></Tag>
         <Design name="bolt3_1e10" map="false" resp="false"/>
         <Design name="bolt3_1e12" map="false" resp="false"/>
         <Data><![CDATA[
- K4_bolt3, K5_bolt3, K6_bolt3
-    1.+6,    1.+6,    1.+6
-    1.+7,    1.+7,    1.+7
-    1.+8,    1.+8,    1.+8
-   1.+10,   1.+10,   1.+10
-   1.+12,   1.+12,   1.+12
+ K4_bolt3, K5_bolt3, K6_bolt3, Response_Array, Modes1, Modes2, Modes3, Modes4, Modes5, Modes6, Modes7, Modes8, Modes9, Modes10
+    1,    1,    1
+    2,    2,    2
+    3,    3,    3
+    4,    4,    4
+    5,    5,    5
 ]]></Data>
       </UserDesignSet>
 
