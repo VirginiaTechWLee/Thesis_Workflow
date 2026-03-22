@@ -423,7 +423,160 @@ jobs:
           }
 
       # ================================================================
-      # STAGE 6: CLEANUP & REPORT
+      # STAGE 6: DATABASE IMPORT
+      # ================================================================
+      - name: Setup database
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  SETTING UP DATABASE"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" heeds/database/setup_database.py `
+            --db_path "${{ steps.config.outputs.DB_PATH }}"
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "ERROR: Database setup failed"
+            exit 1
+          }
+          Log "========================================================"
+
+      - name: Import baseline into database
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+
+          Log "========================================================"
+          Log "  IMPORTING BASELINE AS CASE 0"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" heeds/database/Pch_TO_Database.py `
+            --pch baseline/randombeamx.pch `
+            --study "$studyName" --study_type "sweep" `
+            --case_name "baseline" `
+            --case_number 0 `
+            --is_baseline `
+            --bush_file baseline/Bush.blk `
+            --db_path "${{ steps.config.outputs.DB_PATH }}" `
+            --replace
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "ERROR: Baseline import failed"
+            exit 1
+          }
+          Log "Baseline imported as case 0"
+          Log "========================================================"
+
+      - name: Batch import HEEDS results
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $post0Dir = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1\POST_0"
+
+          Log "========================================================"
+          Log "  BATCH IMPORTING HEEDS RESULTS"
+          Log "========================================================"
+          Log "POST_0 dir: $post0Dir"
+
+          if (-not (Test-Path $post0Dir)) {
+            Log "ERROR: POST_0 directory not found at $post0Dir"
+            exit 1
+          }
+
+          & "${{ vars.PYTHON_PATH }}" heeds/database/batch_import_to_database.py `
+            --post0_dir "$post0Dir" `
+            --study "$studyName" `
+            --db_path "${{ steps.config.outputs.DB_PATH }}"
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "ERROR: Batch import failed"
+            exit 1
+          }
+          Log "========================================================"
+
+      - name: Show database summary
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  DATABASE SUMMARY"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/db_summary.py --db_path "${{ steps.config.outputs.DB_PATH }}"
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 7: ML TRAINING
+      # ================================================================
+      - name: Extract features
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $dbPath = "${{ steps.config.outputs.DB_PATH }}"
+          $outputDir = Split-Path $dbPath
+          $outputFile = "$outputDir\training_matrix.npz"
+
+          Log "========================================================"
+          Log "  EXTRACTING ML FEATURES"
+          Log "========================================================"
+          Log "Database: $dbPath"
+          Log "Output: $outputFile"
+
+          & "${{ vars.PYTHON_PATH }}" Scripts/extract_features.py `
+            --db "$dbPath" `
+            --output "$outputFile"
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "ERROR: Feature extraction failed"
+            exit 1
+          }
+
+          echo "TRAINING_MATRIX=$outputFile" >> $env:GITHUB_OUTPUT
+          Log "========================================================"
+        id: features
+
+      - name: Train classifier
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $dbDir = Split-Path "${{ steps.config.outputs.DB_PATH }}"
+          $inputFile = "${{ steps.features.outputs.TRAINING_MATRIX }}"
+          $modelFile = "$dbDir\bolt_classifier.pkl"
+          $reportFile = "$dbDir\classification_report.txt"
+
+          Log "========================================================"
+          Log "  TRAINING ML CLASSIFIER"
+          Log "========================================================"
+          Log "Input: $inputFile"
+          Log "Model output: $modelFile"
+          Log "Report: $reportFile"
+
+          & "${{ vars.PYTHON_PATH }}" Scripts/train_classifier.py `
+            --input "$inputFile" `
+            --model-output "$modelFile" `
+            --report "$reportFile"
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "WARNING: Classifier training failed (may need more data)"
+          } else {
+            Log "Classifier trained successfully"
+            Log ""
+            Log "=== Classification Report ==="
+            Get-Content $reportFile
+          }
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 8: CLEANUP & REPORT
       # ================================================================
       - name: Cleanup HEEDS processes
         if: always()
@@ -452,6 +605,7 @@ jobs:
           Log "Expected: $expectedDesigns designs"
           Log "Config-driven: YES (fem_input/config.yaml)"
           Log "Pipeline scripts: pipeline/"
+          Log "Database: ${{ steps.config.outputs.DB_PATH }}"
           Log ""
 
           if (Test-Path $studyFolder) {

@@ -301,3 +301,12 @@ Key design decisions:
 - Row mapping: bolt N PBUSH at row `2*N - 1` (0-based) in Femap format
 - `.heeds` XML matches proven bolt3_sweep.heeds structure exactly (HEEDS 2410)
 - Pipeline scripts use `Scripts/Pch_TO_CSV2.py` as-is (auto-discovers nodes from PCH)
+
+### 2026-03-22 — SUPER WORKFLOW GREEN
+
+First fully config-driven end-to-end pipeline run succeeded (run `23403800956`, 1m57s). `fem_input/config.yaml` drove generation of BAT, Bush.blk, and `.heeds` — no hand-crafted files. This proves pipeline generalizability.
+
+- All stages passed: checkout → config read → validate → generate BAT → generate Bush.blk → generate .heeds → HEEDS run → all designs verified
+- Fixed two issues from first attempt: PowerShell `@"..."@` here-string mangled Python f-string quotes (replaced inline Python with `pipeline/read_config.py`), and `actions/checkout@v4` checked out stale commit (added explicit `ref: main`)
+
+**Next:** Chain Workflow 4 (DB import + ML training) into `super_workflow.yml` as the final pipeline stage.
