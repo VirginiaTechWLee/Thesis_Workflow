@@ -207,6 +207,23 @@ def batch_import(post0_dir, study_name, db_path, reset_study=False, dry_run=Fals
         print(f"Error: DB not found: {db_path}")
         return False
     conn = sqlite3.connect(db_path)
+
+    # Check DB integrity before import
+    try:
+        result = conn.execute('PRAGMA integrity_check').fetchone()
+        if result[0] != 'ok':
+            raise sqlite3.DatabaseError(f"integrity_check: {result[0]}")
+    except sqlite3.DatabaseError as e:
+        print(f"WARNING: Database corrupt ({e}), deleting and recreating...")
+        conn.close()
+        os.remove(db_path)
+        # Recreate via setup_database
+        setup_dir = os.path.dirname(os.path.abspath(__file__))
+        setup_script = os.path.join(setup_dir, 'setup_database.py')
+        import subprocess, sys
+        subprocess.check_call([sys.executable, setup_script, '--db_path', db_path])
+        conn = sqlite3.connect(db_path)
+
     try:
         study_id = get_or_create_study(conn, study_name)
         print(f"\nStudy ID: {study_id}")

@@ -470,7 +470,22 @@ jobs:
           # Check for corrupt database and delete if needed
           if (Test-Path $dbPath) {
             try {
-              & "${{ vars.PYTHON_PATH }}" -c "import sqlite3; c=sqlite3.connect('$dbPath'); c.execute('PRAGMA integrity_check'); c.close(); print('DB integrity OK')"
+              & "${{ vars.PYTHON_PATH }}" -c @"
+import sqlite3, sys
+c = sqlite3.connect('$dbPath')
+r = c.execute('PRAGMA integrity_check').fetchone()
+if r[0] != 'ok':
+    print(f'INTEGRITY FAIL: {r[0]}', file=sys.stderr)
+    sys.exit(1)
+# Also probe the largest table to catch page-level corruption
+try:
+    c.execute('SELECT COUNT(*) FROM psd_data').fetchone()
+except Exception as e:
+    print(f'TABLE CHECK FAIL: {e}', file=sys.stderr)
+    sys.exit(1)
+c.close()
+print('DB integrity OK')
+"@
               if ($LASTEXITCODE -ne 0) { throw "integrity check failed" }
             } catch {
               Log "WARNING: Database corrupt, deleting and recreating"
