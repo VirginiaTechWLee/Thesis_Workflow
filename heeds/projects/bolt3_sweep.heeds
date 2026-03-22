@@ -221,7 +221,7 @@ GET_COLUMN_FREE(2, -1,',= ')]]></Tag>
     </RunOptions>
 
     <!--HEEDS.Agent-->
-    <Agent name="Sweep_1" type="EVAL" evalFolder="" id="0" outputPrecision="16" postfolder="POST_0" prefix="HEEDS" saveErrorMode="saveOnly" saveMode="None">
+    <Agent name="Sweep_1" type="EVAL" checksum="5a98" evalFolder="" id="0" lastUpdate="2026-03-21T00:00:00" method=": DesignSweep" numEvalsTotal="5" outputPrecision="16" postfolder="POST_0" prefix="HEEDS" saveErrorMode="saveOnly" saveMode="None">
       <Process ref="HEEDS.Process.Process_1"/>
 
       <!--HEEDS.AgentParameter.Variable-->
@@ -259,6 +259,11 @@ GET_COLUMN_FREE(2, -1,',= ')]]></Tag>
 ]]></Data>
       </UserDesignSet>
 
+      <MethodData type="OPT">
+        <numEvals value="150"/>
+        <method value="SHERPA"/>
+        <SHERPA numEvals="150"/>
+      </MethodData>
       <MethodData type="EVAL" numEvals="5"/>
 
       <Designs>
