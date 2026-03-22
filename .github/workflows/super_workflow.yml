@@ -502,34 +502,6 @@ print('DB integrity OK')
           }
           Log "========================================================"
 
-      - name: Import baseline into database
-        shell: powershell
-        run: |
-          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
-
-          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
-
-          Log "========================================================"
-          Log "  IMPORTING BASELINE AS CASE 0"
-          Log "========================================================"
-
-          & "${{ vars.PYTHON_PATH }}" heeds/database/Pch_TO_Database.py `
-            --pch baseline/randombeamx.pch `
-            --study "$studyName" --study_type "sweep" `
-            --case_name "baseline" `
-            --case_number 0 `
-            --is_baseline `
-            --bush_file baseline/Bush.blk `
-            --db_path "${{ steps.config.outputs.DB_PATH }}" `
-            --replace
-
-          if ($LASTEXITCODE -ne 0) {
-            Log "ERROR: Baseline import failed"
-            exit 1
-          }
-          Log "Baseline imported as case 0"
-          Log "========================================================"
-
       - name: Batch import HEEDS results
         shell: powershell
         run: |
@@ -558,6 +530,34 @@ print('DB integrity OK')
             Log "ERROR: Batch import failed"
             exit 1
           }
+          Log "========================================================"
+
+      - name: Import baseline into database
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+
+          Log "========================================================"
+          Log "  IMPORTING BASELINE AS CASE 0"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" heeds/database/Pch_TO_Database.py `
+            --pch baseline/randombeamx.pch `
+            --study "$studyName" --study_type "sweep" `
+            --case_name "baseline" `
+            --case_number 0 `
+            --is_baseline `
+            --bush_file baseline/Bush.blk `
+            --db_path "${{ steps.config.outputs.DB_PATH }}" `
+            --replace
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "ERROR: Baseline import failed"
+            exit 1
+          }
+          Log "Baseline imported as case 0"
           Log "========================================================"
 
       - name: Show database summary
