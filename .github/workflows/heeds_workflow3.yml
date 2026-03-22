@@ -436,7 +436,28 @@ jobs:
             $elapsed = ((Get-Date) - $startTime).TotalSeconds
             if ($elapsed -gt $folderTimeout) {
               Log "ERROR: Study folder not created after $folderTimeout seconds"
+              Log ""
+              Log "=== DIAGNOSTIC: run_study_log.txt ==="
+              $logPath = "${{ github.workspace }}\run_study_log.txt"
+              if (Test-Path $logPath) { Get-Content $logPath } else { Log "Log file not found" }
+              Log ""
+              Log "=== DIAGNOSTIC: HEEDSMDO.log ==="
+              $heedsLog = "${{ vars.HEEDS_WORKING_DIR }}\HEEDSMDO.log"
+              if (Test-Path $heedsLog) { Get-Content $heedsLog -Tail 50 } else { Log "HEEDSMDO.log not found" }
               Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              exit 1
+            }
+            # Check if HEEDS process already exited (study.run() returned False)
+            if ($process.HasExited) {
+              Log "ERROR: HEEDS process exited (code: $($process.ExitCode)) before study folder was created"
+              Log ""
+              Log "=== DIAGNOSTIC: run_study_log.txt ==="
+              $logPath = "${{ github.workspace }}\run_study_log.txt"
+              if (Test-Path $logPath) { Get-Content $logPath } else { Log "Log file not found" }
+              Log ""
+              Log "=== DIAGNOSTIC: HEEDSMDO.log ==="
+              $heedsLog = "${{ vars.HEEDS_WORKING_DIR }}\HEEDSMDO.log"
+              if (Test-Path $heedsLog) { Get-Content $heedsLog -Tail 50 } else { Log "HEEDSMDO.log not found" }
               exit 1
             }
             Log "  Waiting... ($([int]$elapsed)s / ${folderTimeout}s)"
