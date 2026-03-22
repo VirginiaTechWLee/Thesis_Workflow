@@ -523,7 +523,8 @@ jobs:
           & "${{ vars.PYTHON_PATH }}" heeds/database/batch_import_to_database.py `
             --post0_dir "$post0Dir" `
             --study "$studyName" `
-            --db_path "${{ steps.config.outputs.DB_PATH }}"
+            --db_path "${{ steps.config.outputs.DB_PATH }}" `
+            --reset_study
 
           if ($LASTEXITCODE -ne 0) {
             Log "ERROR: Batch import failed"
