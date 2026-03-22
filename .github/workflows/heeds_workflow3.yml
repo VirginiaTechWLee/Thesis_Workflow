@@ -474,6 +474,9 @@ jobs:
           $lastCount = 0
           $stallTime = 0
           $maxStall = 600
+          $patientMaxStall = 1800
+          $heedsRunEnded = $false
+          $studyLog = "$studyFolder\Study_1.log"
 
           while ($true) {
             $elapsed = ((Get-Date) - $startTime).TotalSeconds
@@ -485,15 +488,30 @@ jobs:
               $csvExists = Test-Path "$($design.FullName)\Analysis_1\acceleration_results.csv"
               if ($pchExists -and $csvExists) { $completed++ }
             }
-            
+
             $totalFolders = ($designFolders | Measure-Object).Count
+
+            # Check if HEEDS has finished its run (all simulations done, files may still be writing)
+            if (-not $heedsRunEnded -and (Test-Path $studyLog)) {
+              $logContent = Get-Content $studyLog -Raw -ErrorAction SilentlyContinue
+              if ($logContent -and $logContent -match "End of HEEDS run") {
+                $heedsRunEnded = $true
+                $stallTime = 0
+                Log ""
+                Log "[INFO] 'End of HEEDS run' detected in study log"
+                Log "[INFO] Switching to patient wait mode ($patientMaxStall s) for file I/O to complete"
+              }
+            }
+
+            $activeStallLimit = if ($heedsRunEnded) { $patientMaxStall } else { $maxStall }
 
             $pct = if ($expectedDesigns -gt 0) { [math]::Round(($completed / $expectedDesigns) * 100, 1) } else { 0 }
             $barLen = 40
             $filled = [math]::Min($barLen, [math]::Floor($barLen * $completed / $expectedDesigns))
             $bar = ("#" * $filled) + ("-" * ($barLen - $filled))
 
-            Log "[$bar] $completed/$expectedDesigns verified ($pct%) | POST_0: $totalFolders | Elapsed: $([int]$elapsed)s"
+            $modeLabel = if ($heedsRunEnded) { "PATIENT" } else { "ACTIVE" }
+            Log "[$bar] $completed/$expectedDesigns verified ($pct%) | POST_0: $totalFolders | Elapsed: $([int]$elapsed)s | Mode: $modeLabel"
 
             if ($completed -ge $expectedDesigns) {
               Log ""
@@ -517,9 +535,9 @@ jobs:
 
             if ($completed -eq $lastCount) {
               $stallTime += 15
-              if ($stallTime -ge $maxStall) {
+              if ($stallTime -ge $activeStallLimit) {
                 Log ""
-                Log "ERROR: Study stalled - no progress for $maxStall seconds"
+                Log "ERROR: Study stalled - no progress for $activeStallLimit seconds (mode: $modeLabel)"
                 Log "Verified completed: $completed / $expectedDesigns"
                 Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
                 Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue

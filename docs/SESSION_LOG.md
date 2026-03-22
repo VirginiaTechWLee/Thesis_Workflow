@@ -38,3 +38,15 @@ Read this document first. Then read CLAUDE.md. Then check git log --oneline -10 
 
 ### 2026-03-21 — Applying Fix
 - Rewriting bolt3_sweep.heeds with correct version, structure, and paths
+
+### 2026-03-21 — Workflow 3 Stall Timeout Fix
+- **Problem:** bolt3_sweep completed all 5 designs (confirmed by "End of HEEDS run" in study log), but the workflow failed because design 5's PCH/CSV files were still writing to disk when the 600s stall timeout triggered.
+- **Fix:** Added patient wait mode to `heeds_workflow3.yml`. Once "End of HEEDS run" is detected in the study log, the stall timeout extends from 600s to 1800s (30 min), giving file I/O time to finish.
+
+### Note: Using @claude on GitHub
+- @claude on GitHub can handle git commits and pushes without HTTPS auth issues.
+- To use it, create an issue at https://github.com/VirginiaTechWLee/Thesis_Workflow/issues and tag @claude.
+- It already has repo permissions via the ANTHROPIC_API_KEY secret configured in the repository.
+
+### 2026-03-21 — Git Auth Issues
+Spent significant time today fighting HTTPS git authentication on GL-MERCURY. Root cause: gho_ OAuth tokens from gh CLI do not work for HTTPS git push operations. Fix going forward: always try `gh auth setup-git` first. If that fails, use @claude on GitHub by creating an issue and tagging @claude — it has repo permissions via ANTHROPIC_API_KEY and bypasses all local auth issues entirely.
