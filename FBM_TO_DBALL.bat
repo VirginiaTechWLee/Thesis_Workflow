@@ -1,5 +1,5 @@
 @echo off
-cd /d %~dp0
+REM Do NOT use "cd /d %~dp0" - HEEDS sets CWD to each design folder
 REM Run the first Nastran command with the Fixed_base_beam.dat file
 "C:\Program Files\Siemens\Simcenter3D\NXNASTRAN\bin\nastranw.exe" Fixed_base_beam.dat scratch=no
 IF ERRORLEVEL 1 (

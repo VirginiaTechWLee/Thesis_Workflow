@@ -29,8 +29,8 @@ def generate_bat(config_path=None, output_path='FBM_TO_DBALL.bat'):
 
     content = (
         '@echo off\r\n'
-        'cd /d %~dp0\r\n'
         'REM Auto-generated from fem_input/config.yaml - DO NOT EDIT\r\n'
+        'REM Do NOT use "cd /d %%~dp0" - HEEDS sets CWD to each design folder\r\n'
         f'REM Model: {model}\r\n'
         f'"{nastran}" {model} scratch=no\r\n'
         'IF ERRORLEVEL 1 (\r\n'
