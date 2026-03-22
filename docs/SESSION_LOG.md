@@ -56,3 +56,9 @@ Design 5 verification failure was actually a Design 2 post-processor crash. Pch_
 
 ### 2026-03-21 — Pch_TO_CSV2.py Fix Applied
 Root cause was Design 2 post-processor crash. Fixed two bugs: 1) ValueError in create_combined_data (line 421) — added array length normalization to handle variable number of response DOFs across designs. 2) TypeError in extract_frequency (line 142) — fixed float + list type mismatch. All 5 Nastran runs complete successfully — the parser was the only blocker. This fix should allow all 5 designs to fully verify.
+
+### 2026-03-22 — Critical Bug Found: expectedDesigns=576 for bolt3_sweep
+- **Run 23394777599 failed** after ~12 minutes with "Study folder not found"
+- **Root cause 1:** `bolt3_sweep` has no case in the `expectedDesigns` switch statement in `heeds_workflow3.yml`. Falls through to `default { 576 }`. The workflow waits for 576 designs that will never come, times out, and reports failure. **Fix:** Added `"bolt3_sweep" { 5 }` to the switch block.
+- **Root cause 2:** GitHub Actions checked out commit `8ce73c5` (old code) instead of `9da9c25` (the Pch_TO_CSV2.py fix). The workflow dispatch was queued while `8ce73c5` was HEAD — `actions/checkout@v4` uses the SHA from the trigger event. The PCH parser fix was never actually tested. Next dispatch will pick up `9da9c25`.
+- **Action:** Fix the switch statement, commit, push, and re-trigger.

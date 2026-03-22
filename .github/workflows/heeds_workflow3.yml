@@ -66,6 +66,7 @@ jobs:
           # Set expected designs based on project
           $designs = switch ($project) {
             "quick_test" { 4 }
+            "bolt3_sweep" { 5 }
             "full_sweep" { 576 }
             "Square_Beam_scenario_short_rev" { 576 }
             default { 576 }
