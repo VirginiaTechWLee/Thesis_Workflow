@@ -310,3 +310,9 @@ First fully config-driven end-to-end pipeline run succeeded (run `23403800956`, 
 - Fixed two issues from first attempt: PowerShell `@"..."@` here-string mangled Python f-string quotes (replaced inline Python with `pipeline/read_config.py`), and `actions/checkout@v4` checked out stale commit (added explicit `ref: main`)
 
 **Next:** Chain Workflow 4 (DB import + ML training) into `super_workflow.yml` as the final pipeline stage.
+
+### 2026-03-22 — Super Workflow Monitor Timeout Fix
+
+- **Root cause:** HEEDS cleans up its job record before the monitor detects completion. The stall detection entered "patient mode" (1800s timeout) when "End of HEEDS run" was found in Study_1.log, but the polling loop never recognized all designs as verified — causing a 30-minute wait followed by exit code 1. All 5 designs were actually complete with PCH + CSV files present.
+- **Fix applied:** Removed patient mode (1800s stall timeout). Moved HEEDS completion check ("End of HEEDS run" in Study_1.log) into the main loop body. When HEEDS signals done, performs thorough per-design verification with logging. If all designs have both PCH and CSV → exits immediately as success. Stall detection now uses a single 600s timeout with detailed per-design diagnostics on failure.
+- **Result:** Pending — re-triggering super workflow to validate.

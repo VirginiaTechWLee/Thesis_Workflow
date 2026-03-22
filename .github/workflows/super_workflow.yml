@@ -376,8 +376,17 @@ jobs:
             $filled = [math]::Min($barLen, [math]::Floor($barLen * $completed / [math]::Max($expectedDesigns, 1)))
             $bar = ("#" * $filled) + ("-" * ($barLen - $filled))
 
-            Log "[$bar] $completed/$expectedDesigns verified ($pct%) | POST_0: $totalFolders | Elapsed: $([int]$elapsed)s"
+            # Check if HEEDS has signaled completion
+            $studyLog = "$studyFolder\Study_1.log"
+            $heedsFinished = $false
+            if (Test-Path $studyLog) {
+              $heedsFinished = Select-String -Path $studyLog -Pattern "End of HEEDS run" -Quiet -ErrorAction SilentlyContinue
+            }
 
+            $heedsTag = if ($heedsFinished) { " [HEEDS DONE]" } else { "" }
+            Log "[$bar] $completed/$expectedDesigns verified ($pct%) | POST_0: $totalFolders | Elapsed: $([int]$elapsed)s$heedsTag"
+
+            # Primary completion: all designs verified
             if ($completed -ge $expectedDesigns) {
               Log ""
               Log "========================================================"
@@ -388,6 +397,27 @@ jobs:
               break
             }
 
+            # HEEDS finished — do thorough per-design check and exit if all present
+            if ($heedsFinished) {
+              Log "HEEDS run complete — verifying each design..."
+              $thoroughCount = 0
+              $designFolders2 = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
+              foreach ($d in $designFolders2) {
+                $pch = Test-Path "$($d.FullName)\Analysis_1\randombeamx.pch"
+                $csv = Test-Path "$($d.FullName)\Analysis_1\acceleration_results.csv"
+                Log "  $($d.Name): PCH=$pch CSV=$csv"
+                if ($pch -and $csv) { $thoroughCount++ }
+              }
+              if ($thoroughCount -ge $expectedDesigns) {
+                Log ""
+                Log "========================================================"
+                Log "  STUDY COMPLETE! (HEEDS finished + all $thoroughCount designs verified)"
+                Log "========================================================"
+                Log "Total time: $([int]$elapsed) seconds ($([math]::Round($elapsed/60, 1)) minutes)"
+                break
+              }
+            }
+
             if ($elapsed -gt $timeoutSec) {
               Log "ERROR: Study timed out after $timeoutSec seconds"
               Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
@@ -396,19 +426,18 @@ jobs:
               exit 1
             }
 
-            # Stall detection with patient mode
+            # Stall detection — no more patient mode; HEEDS-done exit is handled above
             if ($completed -eq $lastCount) {
               $stallTime += 15
-              # Check for HEEDS completion in study log
-              $studyLog = "$studyFolder\Study_1.log"
-              $heedsFinished = $false
-              if (Test-Path $studyLog) {
-                $heedsFinished = Select-String -Path $studyLog -Pattern "End of HEEDS run" -Quiet -ErrorAction SilentlyContinue
-              }
-              $currentMaxStall = if ($heedsFinished) { 1800 } else { $maxStall }
-
-              if ($stallTime -ge $currentMaxStall) {
-                Log "ERROR: Stalled for $stallTime seconds (max: $currentMaxStall)"
+              if ($stallTime -ge $maxStall) {
+                Log "ERROR: Stalled for $stallTime seconds (max: $maxStall) | HEEDS finished: $heedsFinished | Verified: $completed/$expectedDesigns"
+                # Log per-design status for debugging
+                $designFolders3 = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
+                foreach ($d in $designFolders3) {
+                  $pch = Test-Path "$($d.FullName)\Analysis_1\randombeamx.pch"
+                  $csv = Test-Path "$($d.FullName)\Analysis_1\acceleration_results.csv"
+                  Log "  $($d.Name): PCH=$pch CSV=$csv"
+                }
                 Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
                 Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
                 Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
