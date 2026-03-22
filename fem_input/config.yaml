@@ -1,0 +1,92 @@
+# =============================================================================
+# FEM Pipeline Configuration
+# =============================================================================
+# This file centralizes all model-specific parameters so that swapping to a
+# new FEM requires editing only this file (and dropping in new .dat / .blk).
+# Every pipeline script should read from this config instead of hardcoding.
+# =============================================================================
+
+# --- Study Metadata --------------------------------------------------------
+study:
+  name: bolt3_sweep
+  description: "Bolt 3 single-variable sweep (5 designs)"
+  type: sweep            # sweep | doe | monte_carlo
+
+# --- FEM Model Files -------------------------------------------------------
+files:
+  fem_input_dir: fem_input              # where .dat and .blk live
+  structural_model: Fixed_base_beam.dat # main Nastran input deck
+  random_response: RandomBeamX.dat      # SOL 111 random response deck
+  bush_template: Bush.blk               # CBUSH property include file
+  recoveries: Recoveries.blk            # output recovery include
+  analysis_bat: FBM_TO_DBALL.bat        # solver chain batch script
+  output_pch: randombeamx.pch           # Nastran PCH output
+  output_csv_accel: acceleration_results.csv
+  output_csv_disp: displacement_results.csv
+  postprocessor: Pch_TO_CSV2.py
+
+# --- Bolt (CBUSH) Configuration --------------------------------------------
+bolts:
+  total: 10
+  driving_bolt: 1                       # fixed reference bolt (never swept)
+  variable_bolts: [2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+  # Translational stiffness (K1, K2, K3) — constant for all bolts
+  translational_stiffness: 1.0e6        # N/m
+
+  # Driving bolt rotational stiffness (K4, K5, K6)
+  driving_stiffness:
+    K4: 1.0e8
+    K5: 1.0e12
+    K6: 1.0e12
+
+  # Baseline (healthy) rotational stiffness for variable bolts
+  baseline_stiffness: 1.0e12            # N·m/rad
+
+  # Discrete stiffness levels for parametric sweeps
+  # Level 9 = baseline/healthy, Level 1 = loosest
+  stiffness_levels:
+    1: 1.0e4
+    2: 1.0e5
+    3: 1.0e6
+    4: 1.0e7
+    5: 1.0e8
+    6: 1.0e9
+    7: 1.0e10
+    8: 1.0e11
+    9: 1.0e12
+
+  # HEEDS sweep bounds
+  stiffness_min: 1.0e4
+  stiffness_max: 1.0e14
+
+# --- Output Nodes -----------------------------------------------------------
+# Upper beam nodes (structural) and lower measurement nodes
+output_nodes: [1, 111, 222, 333, 444, 555, 666, 777, 888, 999, 1010, 1111]
+
+# --- Degrees of Freedom ----------------------------------------------------
+# Nastran DOF code → human-readable label
+dof_mapping:
+  3: T1    # Translation X
+  4: T2    # Translation Y
+  5: T3    # Translation Z
+  6: R1    # Rotation X
+  7: R2    # Rotation Y
+  8: R3    # Rotation Z
+
+# Which DOFs to use as HEEDS response variables
+output_dofs: [T1, T2, T3]
+
+# --- Peak Detection --------------------------------------------------------
+peaks:
+  n_peaks: 3                            # top N peaks per node/DOF channel
+
+# --- Database ---------------------------------------------------------------
+database:
+  default_path: D:\thesis_database\thesis_results.db
+
+# --- Solver Paths (machine-specific) ---------------------------------------
+paths:
+  nastran_exe: "C:\\Program Files\\Siemens\\Simcenter3D\\NXNASTRAN\\bin\\nastranw.exe"
+  python_exe: "C:\\ProgramData\\anaconda3\\python.exe"
+  heeds_python: "C:\\HEEDS\\MDO\\Ver2410\\Python3\\python.exe"
