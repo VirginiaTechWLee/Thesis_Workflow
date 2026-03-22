@@ -564,12 +564,12 @@ jobs:
       - name: Extract features
         shell: powershell
         run: |
-          $ErrorActionPreference = "Continue"
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
 
           $dbPath = "${{ steps.config.outputs.DB_PATH }}"
           $outputDir = Split-Path $dbPath
           $outputFile = "$outputDir\training_matrix.npz"
+          $stderrFile = "$outputDir\extract_features_stderr.log"
 
           Log "========================================================"
           Log "  EXTRACTING ML FEATURES"
@@ -577,12 +577,28 @@ jobs:
           Log "Database: $dbPath"
           Log "Output: $outputFile"
 
+          # Let SQLite locks from previous steps fully release (Windows-specific)
+          Start-Sleep -Seconds 3
+
+          # Run Python with stderr redirected to file (avoids PowerShell ErrorRecord issue)
+          # stdout flows to GHA log in real-time; stderr captured separately
           & "${{ vars.PYTHON_PATH }}" Scripts/extract_features.py `
             --db "$dbPath" `
-            --output "$outputFile" 2>&1
+            --output "$outputFile" 2>$stderrFile
 
-          if ($LASTEXITCODE -ne 0) {
-            Log "ERROR: Feature extraction failed"
+          $exitCode = $LASTEXITCODE
+
+          # Always show stderr content (warnings or errors)
+          if (Test-Path $stderrFile) {
+            $stderr = Get-Content $stderrFile -Raw
+            if ($stderr -and $stderr.Trim()) {
+              Log "Python stderr output:"
+              Get-Content $stderrFile | ForEach-Object { Log "  $_" }
+            }
+          }
+
+          if ($exitCode -ne 0) {
+            Log "ERROR: Feature extraction failed (exit code $exitCode)"
             exit 1
           }
 
@@ -593,13 +609,13 @@ jobs:
       - name: Train classifier
         shell: powershell
         run: |
-          $ErrorActionPreference = "Continue"
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
 
           $dbDir = Split-Path "${{ steps.config.outputs.DB_PATH }}"
           $inputFile = "${{ steps.features.outputs.TRAINING_MATRIX }}"
           $modelFile = "$dbDir\bolt_classifier.pkl"
           $reportFile = "$dbDir\classification_report.txt"
+          $stderrFile = "$dbDir\train_classifier_stderr.log"
 
           Log "========================================================"
           Log "  TRAINING ML CLASSIFIER"
@@ -611,10 +627,20 @@ jobs:
           & "${{ vars.PYTHON_PATH }}" Scripts/train_classifier.py `
             --input "$inputFile" `
             --model-output "$modelFile" `
-            --report "$reportFile" 2>&1
+            --report "$reportFile" 2>$stderrFile
 
-          if ($LASTEXITCODE -ne 0) {
-            Log "WARNING: Classifier training failed (may need more data)"
+          $exitCode = $LASTEXITCODE
+
+          if (Test-Path $stderrFile) {
+            $stderr = Get-Content $stderrFile -Raw
+            if ($stderr -and $stderr.Trim()) {
+              Log "Python stderr output:"
+              Get-Content $stderrFile | ForEach-Object { Log "  $_" }
+            }
+          }
+
+          if ($exitCode -ne 0) {
+            Log "WARNING: Classifier training failed (exit code $exitCode, may need more data)"
           } else {
             Log "Classifier trained successfully"
             Log ""

@@ -653,10 +653,15 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    build_training_matrix(
-        args.db,
-        args.output,
-        ratio_threshold=args.ratio_threshold,
-        spectral_dof=args.spectral_dof,
-        spectral_dtype=args.spectral_dtype,
-    )
+    try:
+        build_training_matrix(
+            args.db,
+            args.output,
+            ratio_threshold=args.ratio_threshold,
+            spectral_dof=args.spectral_dof,
+            spectral_dtype=args.spectral_dtype,
+        )
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
