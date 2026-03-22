@@ -28,6 +28,9 @@ jobs:
       # ================================================================
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
 
       - name: Read config.yaml and set parameters
         id: config
@@ -39,20 +42,7 @@ jobs:
           Log "  SUPER WORKFLOW - READING CONFIG"
           Log "========================================================"
 
-          $configOutput = & "${{ vars.PYTHON_PATH }}" -c @"
-          import yaml, json, sys
-          with open('fem_input/config.yaml', 'r') as f:
-              config = yaml.safe_load(f)
-          study = config['study']
-          print(f"STUDY_NAME={study['name']}")
-          print(f"STUDY_TYPE={study['type']}")
-          print(f"EXPECTED_DESIGNS={study.get('expected_designs', len(study.get('sweep_levels', [])))}")
-          print(f"SWEEP_BOLTS={','.join(str(b) for b in study.get('sweep_bolts', [3]))}")
-          print(f"TOTAL_BOLTS={config['bolts']['total']}")
-          print(f"STRUCTURAL_MODEL={config['files']['structural_model']}")
-          print(f"RANDOM_RESPONSE={config['files'].get('random_response', 'RandomBeamX.dat')}")
-          print(f"POSTPROCESSOR={config['files'].get('postprocessor', 'Pch_TO_CSV2.py')}")
-          "@
+          $configOutput = & "${{ vars.PYTHON_PATH }}" pipeline/read_config.py
 
           foreach ($line in $configOutput) {
             if ($line -match '^(\w+)=(.*)$') {
