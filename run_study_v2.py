@@ -71,6 +71,21 @@ work_dir = os.path.dirname(project_path)
 log(f"Working directory: {work_dir}")
 log(f"Files in working dir: {os.listdir(work_dir)[:20]}")
 
+# Validate study before running
+log("--- Calling study.checkAndReport() ---")
+try:
+    check_result = study.checkAndReport()
+    log(f"study.checkAndReport() returned: {check_result}")
+except Exception as e:
+    log(f"study.checkAndReport() error: {type(e).__name__}: {e}")
+
+log("--- Calling study.check() ---")
+try:
+    check_result = study.check()
+    log(f"study.check() returned: {check_result}")
+except Exception as e:
+    log(f"study.check() error: {type(e).__name__}: {e}")
+
 # Try to validate/check the study before running
 log("--- Attempting study.run() ---")
 t0 = time.time()
