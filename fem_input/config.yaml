@@ -11,6 +11,9 @@ study:
   name: bolt3_sweep
   description: "Bolt 3 single-variable sweep (5 designs)"
   type: sweep            # sweep | doe | monte_carlo
+  sweep_bolts: [3]       # which bolt(s) to sweep
+  sweep_levels: [1.0e6, 1.0e7, 1.0e8, 1.0e10, 1.0e12]  # stiffness levels for UDS
+  expected_designs: 5    # total designs in the sweep
 
 # --- FEM Model Files -------------------------------------------------------
 files:

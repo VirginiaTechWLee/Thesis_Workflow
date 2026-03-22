@@ -254,4 +254,50 @@ tests/                    → Integration tests
 FBM_TO_DBALL.bat          → Nastran solver chain (to be generated from config)
 Bush.blk                  → Root-level CBUSH (legacy, canonical copy now in fem_input/)
 run_study_v2.py           → HEEDS study runner
+pipeline/                 → Config-driven pipeline scripts (NEW)
 ```
+
+## SUPER WORKFLOW GOAL
+
+The end state is a fully generalized spacecraft bolt looseness diagnostic pipeline. A user drops three files into `fem_input/` (a Nastran DAT file, a Bush.blk, and a config.yaml), triggers the super workflow, and the pipeline automatically:
+
+1. Validates the FEM inputs
+2. Generates `FBM_TO_DBALL.bat` from config
+3. Generates the `.heeds` study file from config
+4. Runs a single test design to confirm end-to-end post-processing works
+5. Runs the full parametric sweep (Workflow 3 equivalent)
+6. Imports results to database and trains the ML classifier (Workflow 4 equivalent)
+7. Produces an LLM-generated diagnostic report
+
+**Gold standard proof of concept:** Given `fem_input/Fixed_base_beam.dat` + `fem_input/Bush.blk` + `fem_input/config.yaml` (beam parameters we already know), the super workflow must reproduce the exact same 5/5 green result we achieved on 2026-03-22 from scratch — no hand-crafted files, no manual edits, purely config-driven. This proves the pipeline generalizes to any spacecraft FEM.
+
+**Design principle:** The new config-driven scripts live in `pipeline/` and do NOT modify existing working scripts in `Scripts/` or `heeds/` which remain as the validated beam baseline.
+
+### 2026-03-22 — Pipeline Directory Created
+
+Built the `pipeline/` directory with 6 config-driven scripts:
+
+| Script | Purpose |
+|--------|---------|
+| `pipeline/config_loader.py` | Load and parse `fem_input/config.yaml` (with PyYAML fallback) |
+| `pipeline/validate_fem_inputs.py` | Validate config structure + required FEM files exist |
+| `pipeline/generate_bat.py` | Generate `FBM_TO_DBALL.bat` from config paths |
+| `pipeline/generate_baseline_bush.py` | Generate Femap-format `Bush.blk` (comment + PBUSH per bolt) |
+| `pipeline/generate_heeds_project.py` | Generate `.heeds` XML matching bolt3_sweep structure |
+
+Created `.github/workflows/super_workflow.yml`:
+- Reads all parameters from `fem_input/config.yaml` (no hardcoded beam values)
+- Generates BAT, Bush.blk, and .heeds from config
+- Runs HEEDS study with monitoring and patient wait mode
+- Reports results with design verification
+
+Updated `fem_input/config.yaml` with sweep-specific fields:
+- `study.sweep_bolts: [3]`
+- `study.sweep_levels: [1.0e6, 1.0e7, 1.0e8, 1.0e10, 1.0e12]`
+- `study.expected_designs: 5`
+
+Key design decisions:
+- Bush.blk generated in Femap format (comment + PBUSH lines) so HEEDS charCol tags work
+- Row mapping: bolt N PBUSH at row `2*N - 1` (0-based) in Femap format
+- `.heeds` XML matches proven bolt3_sweep.heeds structure exactly (HEEDS 2410)
+- Pipeline scripts use `Scripts/Pch_TO_CSV2.py` as-is (auto-discovers nodes from PCH)

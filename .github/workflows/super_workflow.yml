@@ -1,0 +1,509 @@
+name: Super Workflow - Config-Driven Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeout_minutes:
+        description: 'Timeout in minutes'
+        required: true
+        default: '120'
+        type: string
+      folder_mode:
+        description: 'How to handle existing study folders'
+        required: true
+        default: 'overwrite_existing'
+        type: choice
+        options:
+          - overwrite_existing
+          - skip_if_exists
+
+jobs:
+  super-pipeline:
+    runs-on: self-hosted
+    timeout-minutes: 180
+
+    steps:
+      # ================================================================
+      # STAGE 1: CHECKOUT & READ CONFIG
+      # ================================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read config.yaml and set parameters
+        id: config
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  SUPER WORKFLOW - READING CONFIG"
+          Log "========================================================"
+
+          $configOutput = & "${{ vars.PYTHON_PATH }}" -c @"
+          import yaml, json, sys
+          with open('fem_input/config.yaml', 'r') as f:
+              config = yaml.safe_load(f)
+          study = config['study']
+          print(f"STUDY_NAME={study['name']}")
+          print(f"STUDY_TYPE={study['type']}")
+          print(f"EXPECTED_DESIGNS={study.get('expected_designs', len(study.get('sweep_levels', [])))}")
+          print(f"SWEEP_BOLTS={','.join(str(b) for b in study.get('sweep_bolts', [3]))}")
+          print(f"TOTAL_BOLTS={config['bolts']['total']}")
+          print(f"STRUCTURAL_MODEL={config['files']['structural_model']}")
+          print(f"RANDOM_RESPONSE={config['files'].get('random_response', 'RandomBeamX.dat')}")
+          print(f"POSTPROCESSOR={config['files'].get('postprocessor', 'Pch_TO_CSV2.py')}")
+          "@
+
+          foreach ($line in $configOutput) {
+            if ($line -match '^(\w+)=(.*)$') {
+              $key = $matches[1]
+              $val = $matches[2]
+              Log "  $key = $val"
+              echo "$key=$val" >> $env:GITHUB_OUTPUT
+            }
+          }
+
+          $timeoutMin = [int]"${{ github.event.inputs.timeout_minutes }}"
+          $timeoutSec = $timeoutMin * 60
+          echo "TIMEOUT_SEC=$timeoutSec" >> $env:GITHUB_OUTPUT
+
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 2: VALIDATE FEM INPUTS
+      # ================================================================
+      - name: Validate FEM inputs
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  VALIDATING FEM INPUTS"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/validate_fem_inputs.py
+          if ($LASTEXITCODE -ne 0) {
+            Log "ERROR: FEM input validation failed"
+            exit 1
+          }
+
+          # Verify template files exist
+          $templates = @(
+            "templates/${{ steps.config.outputs.STRUCTURAL_MODEL }}",
+            "templates/Recoveries.blk"
+          )
+          foreach ($t in $templates) {
+            if (Test-Path $t) {
+              Log "[PASS] $t"
+            } else {
+              Log "[FAIL] Missing: $t"
+              exit 1
+            }
+          }
+
+          # Check RandomBeamX.dat (case-insensitive)
+          $rand = Get-ChildItem templates -Filter "*randombeamx*" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($rand) {
+            Log "[PASS] $($rand.FullName)"
+          } else {
+            Log "[FAIL] Missing: templates/RandomBeamX.dat"
+            exit 1
+          }
+
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 3: GENERATE PIPELINE FILES
+      # ================================================================
+      - name: Generate FBM_TO_DBALL.bat
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  GENERATING FBM_TO_DBALL.bat"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_bat.py --output FBM_TO_DBALL.bat
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          Log "Contents:"
+          Get-Content FBM_TO_DBALL.bat
+          Log "========================================================"
+
+      - name: Generate baseline Bush.blk (Femap format)
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  GENERATING BASELINE BUSH.BLK (FEMAP FORMAT)"
+          Log "========================================================"
+
+          # Generate to Misc/ (Femap format with comment lines)
+          if (-not (Test-Path Misc)) { mkdir Misc }
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_baseline_bush.py --output Misc/Bush.blk
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          Log ""
+          Log "Contents:"
+          Get-Content Misc/Bush.blk
+          Log "========================================================"
+
+      - name: Generate HEEDS project file
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+
+          Log "========================================================"
+          Log "  GENERATING HEEDS PROJECT: $studyName"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_heeds_project.py --output "heeds/projects/${studyName}.heeds"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          $size = (Get-Item "heeds/projects/${studyName}.heeds").Length
+          Log "File size: $size bytes"
+
+          # Verify PCH VisFile entry
+          $hasPch = Select-String -Path "heeds/projects/${studyName}.heeds" -Pattern "VisFile.*randombeamx\.pch" -Quiet
+          if ($hasPch) {
+            Log "[PASS] PCH VisFile entry present"
+          } else {
+            Log "[WARN] PCH VisFile entry NOT found"
+          }
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 4: PREPARE HEEDS EXECUTION
+      # ================================================================
+      - name: Kill existing HEEDS processes
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  KILLING EXISTING HEEDS PROCESSES"
+          Log "========================================================"
+
+          $processes = @("heeds", "HEEDSMDO", "nastran", "nastranw")
+          foreach ($proc in $processes) {
+            $running = Get-Process -Name $proc -ErrorAction SilentlyContinue
+            if ($running) {
+              Log "Stopping: $proc (PID: $($running.Id))"
+              Stop-Process -Name $proc -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Start-Sleep -Seconds 3
+
+          $stillRunning = Get-Process | Where-Object { $_.Name -match "heeds|HEEDSMDO|nastran" }
+          if ($stillRunning) {
+            Log "WARNING: Some processes still running"
+          } else {
+            Log "SUCCESS: All HEEDS processes stopped"
+          }
+          Log "========================================================"
+
+      - name: Handle existing study folder
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $mode = "${{ github.event.inputs.folder_mode }}"
+          $studyFolder = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1"
+
+          Log "========================================================"
+          Log "  FOLDER MANAGEMENT"
+          Log "========================================================"
+          Log "Study folder: $studyFolder"
+          Log "Mode: $mode"
+
+          if (Test-Path $studyFolder) {
+            if ($mode -eq "overwrite_existing") {
+              Log "[ACTION] Deleting existing folder..."
+              Remove-Item -Path $studyFolder -Recurse -Force
+              Log "[DONE] Folder deleted"
+            } elseif ($mode -eq "skip_if_exists") {
+              Log "[SKIP] Folder exists - exiting"
+              exit 0
+            }
+          } else {
+            Log "[OK] No existing folder"
+          }
+          Log "========================================================"
+
+      - name: Copy files to HEEDS working directory
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $workDir = "${{ vars.HEEDS_WORKING_DIR }}"
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+
+          Log "========================================================"
+          Log "  COPYING FILES TO HEEDS WORKING DIRECTORY"
+          Log "========================================================"
+          Log "Target: $workDir"
+
+          # Generated .heeds project
+          Copy-Item "heeds/projects/${studyName}.heeds" "$workDir\${studyName}.heeds" -Force
+          Log "[OK] ${studyName}.heeds (generated)"
+
+          # Generated Bush.blk (Femap format)
+          Copy-Item "Misc/Bush.blk" "$workDir\Bush.blk" -Force
+          Log "[OK] Bush.blk (Femap format, generated)"
+
+          # Generated FBM_TO_DBALL.bat
+          Copy-Item "FBM_TO_DBALL.bat" "$workDir\" -Force
+          Log "[OK] FBM_TO_DBALL.bat (generated)"
+
+          # Template FEM files
+          Copy-Item "templates/${{ steps.config.outputs.STRUCTURAL_MODEL }}" "$workDir\" -Force
+          Log "[OK] ${{ steps.config.outputs.STRUCTURAL_MODEL }}"
+
+          Copy-Item "templates/Recoveries.blk" "$workDir\" -Force
+          Log "[OK] Recoveries.blk"
+
+          $randFile = Get-ChildItem templates -Filter "*randombeamx*" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($randFile) {
+            Copy-Item $randFile.FullName "$workDir\$($randFile.Name)" -Force
+            Log "[OK] $($randFile.Name)"
+          }
+
+          # Post-processor script (from existing Scripts/)
+          Copy-Item "Scripts/${{ steps.config.outputs.POSTPROCESSOR }}" "$workDir\" -Force
+          Log "[OK] ${{ steps.config.outputs.POSTPROCESSOR }}"
+
+          # Baseline CSVs for delta calculations
+          if (Test-Path "baseline/acceleration_results.csv") {
+            Copy-Item "baseline/acceleration_results.csv" "$workDir\acceleration_results_baseline.csv" -Force
+            Log "[OK] acceleration_results_baseline.csv"
+          }
+          if (Test-Path "baseline/displacement_results.csv") {
+            Copy-Item "baseline/displacement_results.csv" "$workDir\displacement_results_baseline.csv" -Force
+            Log "[OK] displacement_results_baseline.csv"
+          }
+
+          Log ""
+          Log "Files in working directory:"
+          Get-ChildItem $workDir -File | Select-Object Name, Length | Format-Table
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 5: RUN HEEDS STUDY
+      # ================================================================
+      - name: Run HEEDS Study
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $heedsFile = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}.heeds"
+          $runScript = "${{ github.workspace }}\run_study_v2.py"
+          $expectedDesigns = [int]"${{ steps.config.outputs.EXPECTED_DESIGNS }}"
+          $timeoutSec = [int]"${{ steps.config.outputs.TIMEOUT_SEC }}"
+
+          Log "========================================================"
+          Log "  STARTING HEEDS STUDY"
+          Log "========================================================"
+          Log "Project: $studyName"
+          Log "HEEDS file: $heedsFile"
+          Log "Expected designs: $expectedDesigns"
+          Log "Timeout: $timeoutSec seconds"
+          Log "========================================================"
+
+          # Verify files
+          if (-not (Test-Path $runScript)) {
+            Log "ERROR: run_study_v2.py not found at $runScript"
+            exit 1
+          }
+          if (-not (Test-Path $heedsFile)) {
+            Log "ERROR: HEEDS file not found at $heedsFile"
+            exit 1
+          }
+
+          # Start HEEDS
+          $heedsExe = "${{ vars.HEEDS_MDO_PATH }}"
+          Log "Executable: $heedsExe"
+          Log "Command: $heedsExe -b -script `"$runScript`" -project `"$heedsFile`""
+
+          $process = Start-Process -FilePath $heedsExe `
+            -ArgumentList "-b", "-script", "`"$runScript`"", "-project", "`"$heedsFile`"" `
+            -PassThru -NoNewWindow -WorkingDirectory "${{ vars.HEEDS_WORKING_DIR }}"
+
+          Log "HEEDS started (PID: $($process.Id))"
+
+          # Wait for study folder
+          $studyFolder = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1"
+          $post0Folder = "$studyFolder\POST_0"
+          $startTime = Get-Date
+          $folderTimeout = 300
+
+          Log ""
+          Log "Waiting for study folder..."
+
+          while (-not (Test-Path $studyFolder)) {
+            $elapsed = ((Get-Date) - $startTime).TotalSeconds
+            if ($elapsed -gt $folderTimeout) {
+              Log "ERROR: Study folder not created after $folderTimeout seconds"
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              exit 1
+            }
+            Log "  Waiting... ($([int]$elapsed)s / ${folderTimeout}s)"
+            Start-Sleep -Seconds 10
+          }
+
+          Log "SUCCESS: Study folder created!"
+
+          # Monitor progress
+          Log ""
+          Log "========================================================"
+          Log "  MONITORING PROGRESS"
+          Log "========================================================"
+
+          $lastCount = 0
+          $stallTime = 0
+          $maxStall = 600
+
+          while ($true) {
+            $elapsed = ((Get-Date) - $startTime).TotalSeconds
+
+            # Count verified designs in POST_0
+            $completed = 0
+            $designFolders = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
+            foreach ($design in $designFolders) {
+              $pchExists = Test-Path "$($design.FullName)\Analysis_1\randombeamx.pch"
+              $csvExists = Test-Path "$($design.FullName)\Analysis_1\acceleration_results.csv"
+              if ($pchExists -and $csvExists) { $completed++ }
+            }
+
+            $totalFolders = ($designFolders | Measure-Object).Count
+            $pct = if ($expectedDesigns -gt 0) { [math]::Round(($completed / $expectedDesigns) * 100, 1) } else { 0 }
+            $barLen = 40
+            $filled = [math]::Min($barLen, [math]::Floor($barLen * $completed / [math]::Max($expectedDesigns, 1)))
+            $bar = ("#" * $filled) + ("-" * ($barLen - $filled))
+
+            Log "[$bar] $completed/$expectedDesigns verified ($pct%) | POST_0: $totalFolders | Elapsed: $([int]$elapsed)s"
+
+            if ($completed -ge $expectedDesigns) {
+              Log ""
+              Log "========================================================"
+              Log "  STUDY COMPLETE!"
+              Log "========================================================"
+              Log "Verified designs: $completed"
+              Log "Total time: $([int]$elapsed) seconds ($([math]::Round($elapsed/60, 1)) minutes)"
+              break
+            }
+
+            if ($elapsed -gt $timeoutSec) {
+              Log "ERROR: Study timed out after $timeoutSec seconds"
+              Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
+              Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
+              Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
+              exit 1
+            }
+
+            # Stall detection with patient mode
+            if ($completed -eq $lastCount) {
+              $stallTime += 15
+              # Check for HEEDS completion in study log
+              $studyLog = "$studyFolder\Study_1.log"
+              $heedsFinished = $false
+              if (Test-Path $studyLog) {
+                $heedsFinished = Select-String -Path $studyLog -Pattern "End of HEEDS run" -Quiet -ErrorAction SilentlyContinue
+              }
+              $currentMaxStall = if ($heedsFinished) { 1800 } else { $maxStall }
+
+              if ($stallTime -ge $currentMaxStall) {
+                Log "ERROR: Stalled for $stallTime seconds (max: $currentMaxStall)"
+                Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
+                Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
+                Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
+                exit 1
+              }
+            } else {
+              $stallTime = 0
+              $lastCount = $completed
+            }
+
+            Start-Sleep -Seconds 15
+          }
+
+      # ================================================================
+      # STAGE 6: CLEANUP & REPORT
+      # ================================================================
+      - name: Cleanup HEEDS processes
+        if: always()
+        shell: powershell
+        run: |
+          Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
+          Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
+          Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
+          Stop-Process -Name "nastranw" -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+
+      - name: Report Results
+        if: always()
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $expectedDesigns = "${{ steps.config.outputs.EXPECTED_DESIGNS }}"
+          $studyFolder = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1"
+
+          Log "========================================================"
+          Log "  SUPER WORKFLOW - FINAL REPORT"
+          Log "========================================================"
+          Log "Study: $studyName"
+          Log "Expected: $expectedDesigns designs"
+          Log "Config-driven: YES (fem_input/config.yaml)"
+          Log "Pipeline scripts: pipeline/"
+          Log ""
+
+          if (Test-Path $studyFolder) {
+            $post0Folder = "$studyFolder\POST_0"
+            $verified = 0
+            $designFolders = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
+            foreach ($design in $designFolders) {
+              $pchExists = Test-Path "$($design.FullName)\Analysis_1\randombeamx.pch"
+              $csvExists = Test-Path "$($design.FullName)\Analysis_1\acceleration_results.csv"
+              if ($pchExists -and $csvExists) { $verified++ }
+            }
+
+            $totalFolders = ($designFolders | Measure-Object).Count
+            Log "Study folder: $studyFolder"
+            Log "POST_0 folders: $totalFolders"
+            Log "Fully verified (PCH + CSV): $verified / $expectedDesigns"
+
+            if ($verified -ge [int]$expectedDesigns) {
+              Log ""
+              Log "  >>> SUPER WORKFLOW: ALL DESIGNS VERIFIED <<<"
+              Log ""
+            }
+
+            # Show sample design
+            if ($verified -gt 0) {
+              Log "Sample (Design1/Analysis_1):"
+              $sample = "$post0Folder\Design1\Analysis_1"
+              if (Test-Path $sample) {
+                Get-ChildItem $sample -ErrorAction SilentlyContinue | Select-Object -First 10 | ForEach-Object {
+                  Log "  $($_.Name) ($($_.Length) bytes)"
+                }
+              }
+            }
+
+            # Study log tail
+            $logFile = "$studyFolder\Study_1.log"
+            if (Test-Path $logFile) {
+              Log ""
+              Log "=== Study Log (last 10 lines) ==="
+              Get-Content $logFile -Tail 10
+            }
+          } else {
+            Log "WARNING: Study folder not found"
+          }
+          Log "========================================================"

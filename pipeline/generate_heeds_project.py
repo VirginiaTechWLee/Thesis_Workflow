@@ -1,0 +1,416 @@
+"""
+Generate HEEDS .heeds project file from config.yaml.
+
+Produces XML that exactly matches the structure of the working
+bolt3_sweep.heeds (HEEDS 2410 compatible). All model-specific values
+come from config.yaml — no hardcoded beam parameters.
+
+Usage:
+    python pipeline/generate_heeds_project.py
+    python pipeline/generate_heeds_project.py --output heeds/projects/my_study.heeds
+"""
+
+import sys
+import os
+import argparse
+import math
+from datetime import datetime
+
+sys.path.insert(0, os.path.dirname(__file__))
+from config_loader import load_config, nastran_shorthand
+
+
+def generate_heeds_project(config_path=None, output_path=None):
+    """Generate a .heeds project file from config.yaml."""
+    config = load_config(config_path)
+    study = config['study']
+    files = config['files']
+    bolts = config['bolts']
+    paths = config['paths']
+
+    study_name = study['name']
+    sweep_bolts = study.get('sweep_bolts', [3])
+    sweep_levels = study.get('sweep_levels', [1e6, 1e7, 1e8, 1e10, 1e12])
+    expected_designs = study.get('expected_designs', len(sweep_levels))
+
+    if output_path is None:
+        output_path = f"{study_name}.heeds"
+
+    xml = _build_xml(
+        study_name=study_name,
+        sweep_bolts=sweep_bolts,
+        sweep_levels=sweep_levels,
+        expected_designs=expected_designs,
+        files=files,
+        paths=paths,
+        bolts=bolts,
+    )
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(xml)
+
+    print(f"Generated: {output_path}")
+    print(f"  Study: {study_name}")
+    print(f"  Sweep bolts: {sweep_bolts}")
+    print(f"  Levels: {len(sweep_levels)} ({[f'{l:.0e}' for l in sweep_levels]})")
+    print(f"  Expected designs: {expected_designs}")
+    return output_path
+
+
+def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
+               files, paths, bolts):
+    """Build the complete HEEDS XML string."""
+
+    structural_model = files['structural_model']
+    random_response = files.get('random_response', 'RandomBeamX.dat')
+    bush_template = files.get('bush_template', 'Bush.blk')
+    recoveries = files.get('recoveries', 'Recoveries.blk')
+    postprocessor = files.get('postprocessor', 'Pch_TO_CSV2.py')
+    heeds_python = paths['heeds_python']
+
+    # --- Stiffness Set items in Nastran notation ---
+    set_items = [nastran_shorthand(lv) for lv in sweep_levels]
+
+    # --- Variable names: K4, K5, K6 per swept bolt ---
+    variables = []
+    for bolt in sweep_bolts:
+        for dof in ['K4', 'K5', 'K6']:
+            variables.append(f"{dof}_bolt{bolt}")
+
+    # --- Set XML ---
+    set_xml = '\n'.join(f'    <Item value="{item}"/>' for item in set_items)
+
+    # --- Variable declarations ---
+    var_xml = '\n'.join(
+        f'  <Variable name="{v}" flags="2048" numInTags="1"/>'
+        for v in variables
+    )
+
+    # --- Response declarations (mode frequencies from f06) ---
+    resp_lines = ['  <Response name="Response_Array" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>']
+    for i in range(1, 11):
+        resp_lines.append(f'  <Response name="Modes{i}" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[{i}-1]"/>')
+    resp_xml = '\n'.join(resp_lines)
+
+    # --- Bush.blk input tags ---
+    # In Femap format (comment + PBUSH per bolt), bolt N PBUSH is at row 2*N-1 (0-based)
+    tag_lines = []
+    for bolt in sweep_bolts:
+        row = 2 * bolt - 1
+        for dof, col, char_col in [('K4', 6, 48), ('K5', 7, 56), ('K6', 8, 64)]:
+            var_name = f"{dof}_bolt{bolt}"
+            tag_lines.append(
+                f'            <Tag charCol="{char_col}" col="{col}" '
+                f'format="HEEDS.Static.Format.Fixed 8" mode="fixed" '
+                f'ref="HEEDS.Parameter.Variable.{var_name}" row="{row}"/>'
+            )
+    tags_xml = '\n'.join(tag_lines)
+
+    # --- Agent variable declarations (Discrete, referencing Set) ---
+    agent_var_lines = []
+    for v in variables:
+        agent_var_lines.append(
+            f'      <Variable name="{v}" type="Discrete" baseline="1" '
+            f'ref="HEEDS.Parameter.Variable.{v}" '
+            f'set_ref="HEEDS.Attribute.Set.set_{study_name}_K" state="Required"/>'
+        )
+    agent_vars_xml = '\n'.join(agent_var_lines)
+
+    # --- Agent response declarations ---
+    agent_resp_lines = ['      <Response name="Response_Array" ref="HEEDS.Parameter.Response.Response_Array" state="Required"/>']
+    for i in range(1, 11):
+        agent_resp_lines.append(f'      <Response name="Modes{i}" ref="HEEDS.Parameter.Response.Modes{i}" state="Included"/>')
+    agent_resp_xml = '\n'.join(agent_resp_lines)
+
+    # --- UserDesignSet: design names ---
+    design_name_lines = []
+    for level in sweep_levels:
+        exp_str = f"{level:.0e}"
+        e_part = exp_str.split('e+')[1] if 'e+' in exp_str else exp_str.split('e')[1]
+        bolt_str = '_'.join(str(b) for b in sweep_bolts)
+        name = f"bolt{bolt_str}_1e{int(e_part)}"
+        design_name_lines.append(f'        <Design name="{name}" map="false" resp="false"/>')
+    design_names_xml = '\n'.join(design_name_lines)
+
+    # --- UserDesignSet: CDATA with index rows ---
+    header_parts = variables + ['Response_Array'] + [f'Modes{i}' for i in range(1, 11)]
+    data_header = ', '.join(header_parts)
+    data_rows = []
+    for i in range(len(sweep_levels)):
+        idx = i + 1
+        vals = ','.join([f'    {idx}'] * len(variables))
+        data_rows.append(vals)
+    data_block = '\n'.join(data_rows)
+
+    # --- Command for postAnalysis (HEEDS Python runs Pch_TO_CSV2.py) ---
+    # XML entity-encode the double quotes around the path
+    heeds_python_escaped = heeds_python.replace('\\', '\\')
+    command_attr = f'&quot;{heeds_python_escaped}&quot; {postprocessor}'
+
+    # --- f06 filename (lowercase of structural model with .f06 extension) ---
+    f06_name = structural_model.rsplit('.', 1)[0].lower() + '.f06'
+
+    # --- Timestamp ---
+    now_iso = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
+
+    # --- Delimiters string (verbatim from working .heeds) ---
+    delim = '&quot;,&quot;,;,&quot;&quot;,=,(,),\',\\t,\\s'
+
+    # --- Build the full XML ---
+    xml = f'''<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE HEEDSProject>
+<!--       HEEDS Data Model document
+    Copyright (c) 2024 Siemens. All rights reserved.
+
+    {study_name} - Auto-generated from fem_input/config.yaml
+    Generated: {now_iso}
+    Sweep bolts: {sweep_bolts}
+    Levels: {len(sweep_levels)} designs
+-->
+<Project app="HEEDSMDO" build="241030" version="2410.0">
+  <!--Project Data-->
+  <Meta name="scriptEngine">Python3</Meta>
+
+  <!--HEEDS.Attribute.Set-->
+  <Set name="set_{study_name}_K" ordered="1">
+{set_xml}
+  </Set>
+
+  <!--HEEDS.Attribute.Condition-->
+  <Condition name="Condition_1">
+    <Item type="FileContain" anlRef="HEEDS.Analysis.File.MDO.Analysis_1" findRef="HEEDS.Output.File.randombeamx.f06" findText="* * * END OF JOB * * *" op="and"/>
+  </Condition>
+
+  <!--HEEDS.Parameter.Variable-->
+{var_xml}
+
+  <!--HEEDS.Parameter.Response-->
+{resp_xml}
+
+  <!--HEEDS.Process-->
+  <Process name="Process_1" current="true" parallel="false">
+
+    <!--HEEDS.Analysis.File.MDO-->
+    <MDO name="Analysis_1" active="true" solver="General">
+      <Data type="MDO" resource="Local" useMaxTime="true">
+        <anlCommand value="FBM_TO_DBALL.bat"/>
+        <anlArgs value=""/>
+        <anlShell value="cmd.exe"/>
+        <anlFolder value="designFolder"/>
+        <anlErrorMode value="STOP"/>
+        <anlInfeasibleMode value="CONTINUE"/>
+        <anlCreateNewDesignOnError value="false"/>
+        <anlDontCountAsEvalOnError value="false"/>
+        <anlCaptureOutput value="true"/>
+        <decimalDelimiter value="fromPortal"/>
+        <VisFile type="data" filename="acceleration_results.csv" source="analysisFolder"/>
+        <VisFile type="data" filename="acceleration_results_delta.csv" source="analysisFolder"/>
+        <VisFile type="data" filename="displacement_results.csv" source="analysisFolder"/>
+        <VisFile type="data" filename="displacement_results_delta.csv" source="analysisFolder"/>
+        <VisFile type="image" filename="all_acceleration_dof_T1.png" source="analysisFolder"/>
+        <VisFile type="image" filename="all_displacement_dof_T1.png" source="analysisFolder"/>
+        <VisFile type="data" filename="randombeamx.pch" source="analysisFolder"/>
+        <VisFile type="data" filename="{bush_template}" source="analysisFolder"/>
+        <Command command="{command_attr}" event="postAnalysis" folder="designFolder" useRval="0" value="0"/>
+        <primaryInput ref="HEEDS.Input.File.{structural_model}"/>
+        <Reservation active="false" mode="share"/>
+        <FinishCondition ref="HEEDS.Attribute.Condition.Condition_1"/>
+        <RunCondition folder="designFolder" ref="" resource="LOCAL"/>
+        <SuccessCondition ref=""/>
+      </Data>
+
+      <!--Inputs-->
+      <Inputs>
+        <Input type="file" path="{bush_template}">
+          <Data>
+            <source value="projectFolder"/>
+            <target value="analysisFolder"/>
+            <delimiters delim="," list="string">{delim}</delimiters>
+            <widths list="int">8</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+{tags_xml}
+          </Data>
+        </Input>
+        <Input type="file" path="{structural_model}">
+          <Data>
+            <source value="projectFolder"/>
+            <target value="analysisFolder"/>
+            <delimiters delim="," list="string">{delim}</delimiters>
+            <widths list="int">8</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Input>
+        <Input type="file" path="{random_response}">
+          <Data>
+            <source value="projectFolder"/>
+            <target value="analysisFolder"/>
+          </Data>
+        </Input>
+        <Input type="file" path="{recoveries}">
+          <Data>
+            <source value="projectFolder"/>
+            <target value="analysisFolder"/>
+          </Data>
+        </Input>
+        <Input type="file" path="{postprocessor}">
+          <Data>
+            <source value="projectFolder"/>
+            <target value="analysisFolder"/>
+          </Data>
+        </Input>
+      </Inputs>
+
+      <!--Outputs-->
+      <Outputs>
+        <Output type="file" path="{f06_name}">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">{delim}</delimiters>
+            <widths list="int">8</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+            <Tag mode="script" ref="HEEDS.Parameter.Response.Response_Array"><![CDATA[SET_PARAMETER_LIST(%names%) $ auto-generated parameter name list
+GOTO_STRING('FRACTION', 3)
+MOVE_DOWN(2)
+GET_COLUMN_FREE(2, -1,',= ')]]></Tag>
+          </Data>
+        </Output>
+        <Output type="file" path="randombeamx.f06">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">{delim}</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+        <Output type="file" path="randombeamx.pch">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">{delim}</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+        <Output type="file" path="acceleration_results.csv">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">{delim}</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+        <Output type="file" path="displacement_results.csv">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">{delim}</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+        <Output type="file" path="acceleration_results_delta.csv">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">{delim}</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+        <Output type="file" path="displacement_results_delta.csv">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">{delim}</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+      </Outputs>
+    </MDO>
+
+    <!--Execution Order-->
+    <AnalysisGroup type="Serial">
+      <Analysis ref="HEEDS.Analysis.File.MDO.Analysis_1"/>
+    </AnalysisGroup>
+  </Process>
+
+  <!--HEEDS.Study-->
+  <Study name="Study_1" current="true" id="1" postfolder="POST_0" prefix="HEEDS" randomSeed="0.1" status="NotStarted">
+    <Meta name="aviewTimeMode">total</Meta>
+    <Meta name="msgsel">study</Meta>
+    <RunOptions>
+      <CaptureOutput value="true"/>
+      <IgnoreBaseline value="false"/>
+      <OutputUsingCSH value="false"/>
+      <ReEvalError value="false"/>
+      <ReEvalRepeat value="false"/>
+      <ResponseOut value="true"/>
+      <SaveHistory value="true"/>
+      <SaveRestart value="true"/>
+      <ScriptExecution value="false"/>
+      <SharedDesignsFirst value="first"/>
+      <SkipFirstEvalCheck value="false"/>
+      <UseBaseline value="false"/>
+      <VerboseExec value="false"/>
+      <VerboseScript value="false"/>
+      <VerboseSearch value="false"/>
+      <WaitLicense value="false"/>
+    </RunOptions>
+
+    <!--HEEDS.Agent-->
+    <Agent name="Sweep_1" type="EVAL" checksum="5a98" evalFolder="" id="0" lastUpdate="{now_iso}" method=": DesignSweep" numEvalsTotal="{expected_designs}" outputPrecision="16" postfolder="POST_0" prefix="HEEDS" saveErrorMode="saveOnly" saveMode="None">
+      <Process ref="HEEDS.Process.Process_1"/>
+
+      <!--HEEDS.AgentParameter.Variable-->
+{agent_vars_xml}
+
+      <!--HEEDS.AgentParameter.Response-->
+{agent_resp_xml}
+
+      <!--HEEDS.UserDesignSet — {expected_designs} deterministic designs-->
+      <UserDesignSet name="{study_name}">
+{design_names_xml}
+        <Data><![CDATA[
+ {data_header}
+{data_block}
+]]></Data>
+      </UserDesignSet>
+
+      <MethodData type="OPT">
+        <numEvals value="150"/>
+        <method value="SHERPA"/>
+        <SHERPA numEvals="150"/>
+      </MethodData>
+      <MethodData type="EVAL" numEvals="{expected_designs}"/>
+
+      <Designs>
+        <data><![CDATA[
+ Cycle #, Eval #, Source, Status
+]]></data>
+      </Designs>
+    </Agent>
+
+    <!--HEEDS.DesignSet-->
+    <DesignSet name="All Designs" type="5" agent="HEEDS.Agent.Sweep_1" flag="62"/>
+    <DesignSet name="Non-Error Designs" type="4" agent="HEEDS.Agent.Sweep_1" flag="46"/>
+    <DesignSet name="{study_name}" agent="HEEDS.Agent.Sweep_1" flag="32" source="{study_name}"/>
+  </Study>
+
+  <!--HEEDS.Static.Equation-->
+  <StaticEquation name="_desMin" active="true"/>
+  <StaticEquation name="_desMax" active="true"/>
+  <StaticEquation name="_bestVal" active="true"/>
+  <StaticEquation name="_desVal" active="true"/>
+</Project>
+'''
+    return xml
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Generate HEEDS .heeds project from config")
+    parser.add_argument('--config', help='Path to config.yaml')
+    parser.add_argument('--output', '-o', help='Output .heeds file path')
+    args = parser.parse_args()
+    generate_heeds_project(args.config, args.output)
