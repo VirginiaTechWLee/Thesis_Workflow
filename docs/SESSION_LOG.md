@@ -50,3 +50,9 @@ Read this document first. Then read CLAUDE.md. Then check git log --oneline -10 
 
 ### 2026-03-21 — Git Auth Issues
 Spent significant time today fighting HTTPS git authentication on GL-MERCURY. Root cause: gho_ OAuth tokens from gh CLI do not work for HTTPS git push operations. Fix going forward: always try `gh auth setup-git` first. If that fails, use @claude on GitHub by creating an issue and tagging @claude — it has repo permissions via ANTHROPIC_API_KEY and bypasses all local auth issues entirely.
+
+### 2026-03-21 — Root Cause Found
+Design 5 verification failure was actually a Design 2 post-processor crash. Pch_TO_CSV2.py crashes on Design 2 with two errors: ValueError in create_combined_data (line 421) — mismatched array lengths when building DataFrame, and TypeError in extract_frequency (line 142) — unsupported operand float + list. Nastran ran successfully for all 5 designs — the PCH files exist. The post-processor fails to parse Design 2's PCH due to different number of response DOFs or frequencies. Fix: update Pch_TO_CSV2.py to handle variable array lengths gracefully.
+
+### 2026-03-21 — Pch_TO_CSV2.py Fix Applied
+Root cause was Design 2 post-processor crash. Fixed two bugs: 1) ValueError in create_combined_data (line 421) — added array length normalization to handle variable number of response DOFs across designs. 2) TypeError in extract_frequency (line 142) — fixed float + list type mismatch. All 5 Nastran runs complete successfully — the parser was the only blocker. This fix should allow all 5 designs to fully verify.

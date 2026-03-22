@@ -117,11 +117,19 @@ def process_data_blocks(lines):
 
 
 def extract_frequency(lines):
-    """Extract frequency data from the input file"""
+    """Extract frequency data from the input file.
+
+    Collects the union of all unique frequencies across all data blocks.
+    Different DOF blocks may have different frequency counts, so we gather
+    the full superset here and later pad PSD arrays to match.
+    """
     global total_frequencies
 
     if 'Frequency' not in data_dict:
         data_dict['Frequency'] = []
+
+    # Use a set for fast membership checks, avoiding O(n) 'in' on a list
+    freq_set = set(data_dict['Frequency'])
 
     within_data_block = False
     current_block = None
@@ -139,7 +147,8 @@ def extract_frequency(lines):
                 if len(frequency_parts) >= 4:
                     try:
                         frequency = float(frequency_parts[1])
-                        if frequency not in data_dict['Frequency']:
+                        if frequency not in freq_set:
+                            freq_set.add(frequency)
                             data_dict['Frequency'].append(frequency)
                             total_frequencies += 1
                     except (ValueError, IndexError):
@@ -416,6 +425,24 @@ def create_combined_data(input_filename='randombeamx.pch', acce_output_filename=
         # Sort frequencies to ensure consistent data organization
         if 'Frequency' in data_dict:
             data_dict['Frequency'] = sorted(data_dict['Frequency'])
+
+        # Ensure all arrays have the same length before creating DataFrame.
+        # Different DOF blocks may have different numbers of frequency points
+        # (e.g., Design 2 has varying counts per DOF). Pad shorter arrays with
+        # NaN so they match the longest array (typically the Frequency column).
+        if data_dict:
+            max_len = max(len(v) for v in data_dict.values())
+            for key in data_dict:
+                current_len = len(data_dict[key])
+                if current_len < max_len:
+                    if key == 'Frequency':
+                        # Should not happen, but pad with NaN just in case
+                        data_dict[key].extend([np.nan] * (max_len - current_len))
+                    else:
+                        data_dict[key].extend([np.nan] * (max_len - current_len))
+                elif current_len > max_len:
+                    # Truncate if somehow longer (shouldn't happen normally)
+                    data_dict[key] = data_dict[key][:max_len]
 
         # Create DataFrame from the data dictionary
         original_df = pd.DataFrame(data_dict)
