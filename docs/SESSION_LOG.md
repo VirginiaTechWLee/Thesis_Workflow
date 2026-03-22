@@ -316,3 +316,29 @@ First fully config-driven end-to-end pipeline run succeeded (run `23403800956`, 
 - **Root cause:** HEEDS cleans up its job record before the monitor detects completion. The stall detection entered "patient mode" (1800s timeout) when "End of HEEDS run" was found in Study_1.log, but the polling loop never recognized all designs as verified — causing a 30-minute wait followed by exit code 1. All 5 designs were actually complete with PCH + CSV files present.
 - **Fix applied:** Removed patient mode (1800s stall timeout). Moved HEEDS completion check ("End of HEEDS run" in Study_1.log) into the main loop body. When HEEDS signals done, performs thorough per-design verification with logging. If all designs have both PCH and CSV → exits immediately as success. Stall detection now uses a single 600s timeout with detailed per-design diagnostics on failure.
 - **Result:** Pending — re-triggering super workflow to validate.
+
+### 2026-03-22 — Design 5 CSV=False Deep Investigation
+
+**Problem:** In the bolt3_sweep super workflow, Design 5 consistently has PCH=True but CSV=False. The PCH file has valid data (36 `$ACCE`, 72 `$DISP`), yet `Pch_TO_CSV2.py` reports "No data was extracted" with 0 instances.
+
+**Hypothesis tested:** BAT file runs from wrong working directory.
+
+**Key findings from Process_execution_actions.log and HEEDS internals:**
+
+1. **HEEDS wraps the BAT** in `Execute_Analysis_1_analysis.cmd` which calls `FBM_TO_DBALL.bat` by name only — no `cd`, no path. Relies on HEEDS setting CWD.
+
+2. **Two Python invocations per design:**
+   - BAT call (Anaconda Python) — does actual work. Design1-4: SUCCESS. Design5: FAILURE (0 ACCE).
+   - HEEDS `postAnalysisCommand` (HEEDS Python) — always crashes on matplotlib (`RuntimeError: internal error in regular expression engine`). Secondary issue.
+
+3. **Timing:** All 5 designs ran ~20s sequentially. Design5 is last. Same duration, same mechanism.
+
+4. **PCH validation:** All PCH files in POST_0 have 36 `$ACCE` entries. Direct Python test parses Design5's PCH correctly. The file was NOT corrupt.
+
+5. **Comparison:** `fem_analysis_workflow2.yml` explicitly manages CWD (`cd current_run`). `heeds_workflow3.yml` delegates to HEEDS. `FBM_TO_DBALL.bat` had no CWD management.
+
+**Verdict: PARTIALLY AGREE.** The exact mechanism is unclear (if CWD were totally wrong, Nastran would also fail), but the fix is warranted as defensive programming. Most likely: transient CWD drift or file system race affecting the last design.
+
+**Fix applied:** Added `cd /d %~dp0` after `@echo off` in `FBM_TO_DBALL.bat`. Since HEEDS copies the BAT to each design folder, `%~dp0` resolves to `HEEDS_0/DesignN/`.
+
+**Secondary issue:** HEEDS `postAnalysisCommand` uses `C:\HEEDS\MDO\Ver2410\Python3\python.exe` which has broken matplotlib. Crashes for ALL designs. Should be removed or changed to Anaconda Python.

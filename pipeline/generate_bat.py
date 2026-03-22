@@ -29,6 +29,7 @@ def generate_bat(config_path=None, output_path='FBM_TO_DBALL.bat'):
 
     content = (
         '@echo off\r\n'
+        'cd /d %~dp0\r\n'
         'REM Auto-generated from fem_input/config.yaml - DO NOT EDIT\r\n'
         f'REM Model: {model}\r\n'
         f'"{nastran}" {model} scratch=no\r\n'
