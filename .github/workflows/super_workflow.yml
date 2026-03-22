@@ -388,18 +388,19 @@ jobs:
 
             # Primary completion: all designs verified
             if ($completed -ge $expectedDesigns) {
+              $mins = [math]::Round($elapsed/60, 1)
               Log ""
               Log "========================================================"
               Log "  STUDY COMPLETE!"
               Log "========================================================"
               Log "Verified designs: $completed"
-              Log "Total time: $([int]$elapsed) seconds ($([math]::Round($elapsed/60, 1)) minutes)"
+              Log "Total time: $([int]$elapsed) seconds ($mins minutes)"
               break
             }
 
-            # HEEDS finished — do thorough per-design check and exit if all present
+            # HEEDS finished - do thorough per-design check and exit if all present
             if ($heedsFinished) {
-              Log "HEEDS run complete — verifying each design..."
+              Log "HEEDS run complete - verifying each design..."
               $thoroughCount = 0
               $designFolders2 = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
               foreach ($d in $designFolders2) {
@@ -409,11 +410,12 @@ jobs:
                 if ($pch -and $csv) { $thoroughCount++ }
               }
               if ($thoroughCount -ge $expectedDesigns) {
+                $mins = [math]::Round($elapsed/60, 1)
                 Log ""
                 Log "========================================================"
-                Log "  STUDY COMPLETE! (HEEDS finished + all $thoroughCount designs verified)"
+                Log "  STUDY COMPLETE! HEEDS finished + all $thoroughCount designs verified"
                 Log "========================================================"
-                Log "Total time: $([int]$elapsed) seconds ($([math]::Round($elapsed/60, 1)) minutes)"
+                Log "Total time: $([int]$elapsed) seconds ($mins minutes)"
                 break
               }
             }
@@ -426,7 +428,7 @@ jobs:
               exit 1
             }
 
-            # Stall detection — no more patient mode; HEEDS-done exit is handled above
+            # Stall detection - no patient mode; HEEDS-done exit is handled above
             if ($completed -eq $lastCount) {
               $stallTime += 15
               if ($stallTime -ge $maxStall) {
