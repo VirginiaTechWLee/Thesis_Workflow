@@ -25,10 +25,24 @@ def create_schema(conn):
         CREATE TABLE IF NOT EXISTS studies (
             study_id INTEGER PRIMARY KEY AUTOINCREMENT,
             study_name TEXT UNIQUE NOT NULL,
+            study_type TEXT NOT NULL DEFAULT 'manual',
+            num_cases INTEGER,
             description TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP,
+            status TEXT DEFAULT 'created'
         )
     ''')
+
+    # Migrate existing DB: add study_type if missing
+    try:
+        cursor.execute("SELECT study_type FROM studies LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE studies ADD COLUMN study_type TEXT NOT NULL DEFAULT 'manual'")
+        cursor.execute("ALTER TABLE studies ADD COLUMN num_cases INTEGER")
+        cursor.execute("ALTER TABLE studies ADD COLUMN completed_at TIMESTAMP")
+        cursor.execute("ALTER TABLE studies ADD COLUMN status TEXT DEFAULT 'created'")
+        print("Migrated studies table: added study_type, num_cases, completed_at, status")
     
     # Cases table - individual analysis runs
     cursor.execute('''
@@ -186,8 +200,9 @@ def main():
             create_schema(conn)
     elif db_exists:
         print(f"Database exists: {args.db_path}")
+        # Run create_schema to apply any migrations for missing columns
+        create_schema(conn)
         get_db_stats(conn)
-        print("\nTo reset, run with --reset flag")
     else:
         print(f"Creating new database: {args.db_path}")
         create_schema(conn)
