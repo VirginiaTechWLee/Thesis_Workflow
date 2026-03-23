@@ -85,3 +85,8 @@ heeds/results/**/*.bak
 # fem_input/ — commit DAT, BLK, and config.yaml but ignore generated files
 fem_input/*.heeds
 fem_input/results/
+
+# =============================================================================
+# FEM_Utility — standalone Nastran utility runs (Task 1)
+# =============================================================================
+FEM_Utility/

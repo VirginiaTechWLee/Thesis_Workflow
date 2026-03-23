@@ -342,3 +342,190 @@ First fully config-driven end-to-end pipeline run succeeded (run `23403800956`, 
 **Fix applied:** Added `cd /d %~dp0` after `@echo off` in `FBM_TO_DBALL.bat`. Since HEEDS copies the BAT to each design folder, `%~dp0` resolves to `HEEDS_0/DesignN/`.
 
 **Secondary issue:** HEEDS `postAnalysisCommand` uses `C:\HEEDS\MDO\Ver2410\Python3\python.exe` which has broken matplotlib. Crashes for ALL designs. Should be removed or changed to Anaconda Python.
+
+### 2026-03-22 — Fix YAML Here-String + Baseline-Optional Extract Features
+
+**Three issues identified from failed runs:**
+
+1. **YAML here-string parse error** (runs 23411973159, 23411465969 — 0s failures): PowerShell `@"..."@` here-string in DB integrity check mangled Python f-string quotes, causing YAML parse failure. **Fix:** Replaced multi-line here-string with single-line Python `-c` command.
+
+2. **extract_features.py crash — no baseline** (run 23411105379): `Cases loaded: 5 (baseline=0)` → `ValueError: No baseline case found`. Root cause: earlier workflow ordering had baseline import BEFORE `--reset_study` batch import, so baseline was wiped. Commit aeafdaf fixed the order (batch import first, then baseline). But the YAML parse error prevented it from running.
+
+3. **PowerShell stderr kills step**: Python writing to stderr (even warnings) causes `NativeCommandError` with default `$ErrorActionPreference = "Stop"`. **Fix:** Set `$ErrorActionPreference = "Continue"` in extract_features and train_classifier steps.
+
+**Additional defensive fix:** Made `extract_features.py` gracefully handle missing baseline — uses first case as reference for structure discovery, skips delta features, sets all labels to 0. This prevents crashes even if baseline import fails for any reason.
+
+**Commit:** 326d2e2 — pushed and workflow triggered (run 23412503662).
+
+---
+
+## DIAGNOSTIC
+
+### Full Run History (15 Super Workflow Runs — 2026-03-22)
+
+| # | Time | Run ID | Duration | Stage Failed | Exact Error |
+|---|------|--------|----------|--------------|-------------|
+| 1 | 13:09 | 23403747816 | 14s | Read config.yaml | `Process completed with exit code 1` — first-ever run, `read_config.py` not yet committed |
+| 2 | 13:12 | 23403800956 | 2m01s | **NONE — SUCCESS** | All stages green. Config-driven pipeline proven. |
+| 3 | 14:02 | 23404677553 | 31m44s | Run HEEDS Study | Stall timeout 600s — Design 5 CSV=False (Pch_TO_CSV2.py CWD bug). Monitor entered patient mode (1800s) → waited 30 min → exit 1 |
+| 4 | 15:08 | 23405882918 | 18s | Run HEEDS Study | PowerShell syntax error: `Unexpected token 'ERROR:' in expression or statement` — `Log "ERROR: ..."` inside switch-like context |
+| 5 | 15:11 | 23405935185 | 2m02s | Import baseline | `Error: table studies has no column named study_type` — schema migration not applied to existing DB |
+| 6 | 15:14 | 23406000764 | 2m09s | Extract features | `Cases loaded: 5 (baseline=0)` → `ValueError: No baseline case found` — baseline wiped by `--reset_study` batch import |
+| 7 | 15:18 | 23406074712 | 11m43s | Run HEEDS Study | Stall timeout: `Stalled for 600 seconds | HEEDS finished: True | Verified: 4/5` — Design 5 CSV still missing (CWD bug) |
+| 8 | 16:56 | 23407884809 | 18s | Handle existing study folder | Study folder deletion failed (HEEDS process lock on folder) |
+| 9 | 18:46 | 23409932428 | 18s | Handle existing study folder | Same as #8 — HEEDS process still holding folder lock |
+| 10 | 18:46 | 23409937593 | 18s | Handle existing study folder | Same as #8/#9 — rapid re-trigger, same lock |
+| 11 | 19:06 | 23410296009 | 16m07s | Run HEEDS Study | `Stalled for 600 seconds | HEEDS finished: False | Verified: 0/5` — HEEDS hung/crashed, no designs completed |
+| 12 | 19:40 | 23410935717 | 2m14s | Batch import HEEDS results | `UNIQUE constraint failed: cases.study_id, cases.case_number` — stale data from previous run not cleared |
+| 13 | 19:45 | 23411028405 | 1m59s | Batch import HEEDS results | `database disk image is malformed` — DB corruption from rapid writes/crashes |
+| 14 | 19:49 | 23411105379 | 1m46s | Extract features | `Cases loaded: 5 (baseline=0)` → Python Traceback (stderr → NativeCommandError killed step) |
+| 15 | 21:06 | 23412503662 | 2m20s | Extract features | `Cases loaded: 6 (baseline=1)` → Python crashed silently during spectral extraction (no traceback, exit code 1). All prior stages green. |
+
+### Root Cause Analysis
+
+**There is no single root cause.** The 14 failures span 6 distinct failure modes across 5 different stages:
+
+1. **Design 5 CSV bug (runs 3, 7):** `Pch_TO_CSV2.py` ran from wrong CWD in last design. Fixed by `cd /d %~dp0` in BAT. ✅ FIXED
+2. **DB schema mismatch (run 5):** `study_type` column missing. Fixed by `setup_database.py`. ✅ FIXED
+3. **Baseline wipe (runs 6, 14):** `--reset_study` deleted baseline. Fixed by reordering: batch import → baseline import. ✅ FIXED
+4. **HEEDS folder lock (runs 8, 9, 10):** Study folder locked by HEEDS process. Kill step ran but wasn't aggressive enough. ✅ PARTIALLY FIXED
+5. **DB corruption (run 13):** Rapid write/crash cycle corrupted DB. Self-healing added. ✅ FIXED
+6. **Extract features silent crash (run 15):** Python exits with code 1, no traceback. Root cause: `2>&1` PowerShell redirect converts Python stderr to ErrorRecord. With `$ErrorActionPreference = "Continue"`, records are tolerated BUT the Python process itself crashes during heavy DB reads immediately after sequential writes. Most likely: SQLite file lock not fully released from baseline import step (Windows-specific). ❌ NOT FIXED
+
+### Node.js V8 Fatal Error — Claude Code Crashes
+
+The recurring "V8 fatal error" crashing Claude Code is a **known issue with the Node.js runtime** used by Claude Code on Windows. It occurs when:
+- The V8 JavaScript engine runs out of heap memory during large operations
+- This is NOT related to the workflow failures — it's a Claude Code client-side crash
+- Mitigation: Save progress to SESSION_LOG.md frequently so the next session can resume
+
+### Current State (as of run 15)
+
+**Stages that are GREEN (proven working):**
+1. ✅ Checkout repository
+2. ✅ Read config.yaml
+3. ✅ Validate FEM inputs
+4. ✅ Generate FBM_TO_DBALL.bat
+5. ✅ Generate baseline Bush.blk
+6. ✅ Generate HEEDS project file
+7. ✅ Kill HEEDS processes
+8. ✅ Handle existing study folder
+9. ✅ Copy files to HEEDS working directory
+10. ✅ Run HEEDS Study (5/5 designs verified)
+11. ✅ Setup database
+12. ✅ Batch import HEEDS results (5 designs, 172,800 PSD rows)
+13. ✅ Import baseline (case 0, 28,728 PSD points)
+14. ✅ Show database summary
+15. ❌ Extract features — silent crash
+16. ⬜ Train classifier — skipped (depends on #15)
+
+**Database state is correct:** 6 cases (1 baseline + 5 designs), 172,800 PSD records, 648 peaks, 60 parameters. Running `extract_features.py` locally succeeds (0.1s, exit code 0).
+
+---
+
+## ACTION PLAN
+
+### Action 1: Fix extract_features silent crash in GitHub Actions
+**Problem:** PowerShell `2>&1` + rapid sequential DB access causes silent Python crash.
+**Fix:**
+- Remove `2>&1` from extract_features and train_classifier steps
+- Add `Start-Sleep -Seconds 2` before extract_features to let SQLite locks release
+- Wrap Python call with proper error capture: redirect stderr to file, check exit code
+- Add try/except at top level of extract_features.py to always print traceback
+**File:** `.github/workflows/super_workflow.yml` (lines 564-591), `Scripts/extract_features.py`
+**Verify:** Trigger workflow, confirm extract_features completes with `Cases loaded: 6 (baseline=1)` and training matrix saved.
+
+### Action 2: Fix train_classifier for small dataset (5 sweep + 1 baseline = 6 samples)
+**Problem:** `train_classifier.py` uses `StratifiedKFold` which needs at least 2 samples per class. With only 6 samples, some classes may have 1 sample → crash.
+**Fix:** Add minimum sample check; if too few for cross-validation, use leave-one-out or skip CV and just train on all data.
+**File:** `Scripts/train_classifier.py`
+**Verify:** Run locally: `python Scripts/train_classifier.py --input D:\thesis_database\training_matrix.npz`
+
+### Action 3: Trigger and monitor super workflow
+**Verify:** All 8 stages green (including extract_features and train_classifier).
+
+### Status: COMPLETE — All Actions Resolved
+
+---
+
+### 2026-03-22 — Run 23414027729 Investigation (Requested Audit)
+
+**Question:** Run completed in ~2 minutes — suspiciously fast. Did HEEDS actually run 5 new Nastran simulations or reuse existing results?
+
+**Verdict: LEGITIMATE CLEAN RUN.** HEEDS ran all 5 new Nastran simulations from scratch. Evidence:
+
+1. **Folder mode was `overwrite_existing`** — the existing `bolt3_sweep_Study_1` folder was deleted before HEEDS started:
+   ```
+   [18:28:38] Mode: overwrite_existing
+   [18:28:38] [ACTION] Deleting existing folder...
+   [18:28:38] [DONE] Folder deleted
+   ```
+
+2. **Designs completed progressively** (not instantly), consistent with real Nastran solves:
+   ```
+   [18:28:48] [----] 0/5 verified | POST_0: 5 | Elapsed: 10s
+   [18:29:03] [##--] 1/5 verified | Elapsed: 25s
+   [18:29:33] [####] 3/5 verified | Elapsed: 55s
+   [18:30:03] [####] 4/5 verified | Elapsed: 85s
+   [18:30:18] [####] 5/5 verified (100%) | Elapsed: 100s [HEEDS DONE]
+   ```
+
+3. **Total HEEDS time: 100 seconds (1.7 minutes).** The fixed-base beam is a trivial FEM — each Nastran solve takes ~15-20s. Five sequential designs in 100s is expected.
+
+4. **No skip/reuse indicators** — no "existing results found", no "skipping computation" messages. Fresh folder, fresh HEEDS process (PID 14104), fresh designs.
+
+**Bonus finding: THIS IS THE FIRST FULLY END-TO-END GREEN RUN (all 16 stages).**
+
+All post-HEEDS stages also succeeded for the first time:
+- **Extract features:** Cases loaded: 6 (baseline=1), 12 nodes, 10 bolt elements, 756 peak features + spectral/delta features
+- **Train classifier:** RandomForest, 67% accuracy (expected for 6 samples), saved to `D:\thesis_database\bolt_classifier.pkl`
+- **Top feature:** `n222_R2_dis_area` (importance 0.188) — node 222 displacement area, physically meaningful (bolt 3 is between nodes 222-333)
+
+**Run 16 (23414027729) is the gold standard proof of concept.** The entire pipeline — from `config.yaml` → generated BAT/Bush.blk/.heeds → HEEDS parametric sweep → DB import → ML feature extraction → classifier training — completed autonomously in 2 minutes with zero manual intervention.
+
+| Stage | Status | Duration |
+|-------|--------|----------|
+| Checkout + config + validate + generate | ✅ | 10s |
+| Kill HEEDS + delete folder + copy files | ✅ | 10s |
+| Run HEEDS Study (5 Nastran sims) | ✅ | 100s |
+| Setup DB + batch import + baseline import | ✅ | 2s |
+| Extract features | ✅ | 3s |
+| Train classifier | ✅ | 2s |
+| **Total** | **✅ ALL GREEN** | **~127s** |
+
+---
+
+### 2026-03-22 — Task 1: Nastran Utility Workflow — STATUS: ACTIVE
+
+Implementing Task 1 from TASK_PLAN.md — standalone Nastran utility workflow for FEM validation and troubleshooting.
+
+**Files created/modified:**
+
+| File | Action | Purpose |
+|------|--------|---------|
+| `fem_input/config.yaml` | Modified | Added `analysis.type: full` (sol103/sol111/full) |
+| `.gitignore` | Modified | Added `FEM_Utility/` |
+| `pipeline/validate_fem_inputs.py` | Modified | Added `--dball` flag with 5 DBALL readiness checks |
+| `pipeline/run_nastran_utility.py` | Created | Nastran runner — timestamped folders, copies inputs, runs SOL 103/111/full |
+| `pipeline/generate_simulation_report.py` | Created | Reads F06, calls Anthropic API (temp=0, grounded prompt), writes simulation_report.md |
+| `.github/workflows/nastran_utility.yml` | Created | Triggers: workflow_dispatch, push on fem_input/*.dat/*.blk, repository_dispatch (nastran_validation) |
+
+**DBALL readiness checks added:**
+1. DAT uses SOL SEMODES or SOL 103
+2. INIT MASTER present (DBALL preservation)
+3. SPC boundary condition exists (no free-free)
+4. RandomBeamX.dat exists for full/sol111 runs
+5. DLOAD or RANDPS cards in random response deck
+
+**MCP TRIGGER (for future Claude Desktop integration):**
+```
+POST https://api.github.com/repos/VirginiaTechWLee/Thesis_Workflow/dispatches
+Authorization: Bearer <GITHUB_TOKEN>
+Content-Type: application/json
+Body: {"event_type": "nastran_validation"}
+
+Optional payload to override analysis type:
+Body: {"event_type": "nastran_validation", "client_payload": {"analysis_type": "sol103"}}
+```
+
+**Next:** Commit, push, and test trigger.

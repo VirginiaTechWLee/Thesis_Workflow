@@ -1,0 +1,185 @@
+name: Nastran Utility - FEM Validation & Diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      analysis_type:
+        description: 'Analysis type'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - sol103
+          - sol111
+          - full
+
+  push:
+    paths:
+      - 'fem_input/*.dat'
+      - 'fem_input/*.blk'
+
+  repository_dispatch:
+    types: [nastran_validation]
+
+jobs:
+  nastran-utility:
+    runs-on: self-hosted
+    timeout-minutes: 60
+
+    steps:
+      # ================================================================
+      # STAGE 1: CHECKOUT
+      # ================================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # ================================================================
+      # STAGE 2: DETERMINE ANALYSIS TYPE
+      # ================================================================
+      - name: Set analysis type
+        id: params
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  NASTRAN UTILITY - SETTING PARAMETERS"
+          Log "========================================================"
+
+          # Priority: workflow_dispatch input > repository_dispatch payload > config default
+          $analysisType = "${{ github.event.inputs.analysis_type }}"
+          if (-not $analysisType) {
+            $analysisType = "${{ github.event.client_payload.analysis_type }}"
+          }
+          if (-not $analysisType) {
+            $analysisType = "full"
+          }
+
+          Log "Analysis type: $analysisType"
+          echo "ANALYSIS_TYPE=$analysisType" >> $env:GITHUB_OUTPUT
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 3: VALIDATE FEM INPUTS (with DBALL readiness checks)
+      # ================================================================
+      - name: Validate FEM inputs
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  VALIDATING FEM INPUTS (DBALL READINESS)"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/validate_fem_inputs.py --dball
+          if ($LASTEXITCODE -ne 0) {
+            Log "ERROR: FEM input validation failed"
+            exit 1
+          }
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 4: RUN NASTRAN UTILITY
+      # ================================================================
+      - name: Run Nastran Utility
+        id: nastran
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $analysisType = "${{ steps.params.outputs.ANALYSIS_TYPE }}"
+
+          Log "========================================================"
+          Log "  RUNNING NASTRAN UTILITY ($analysisType)"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/run_nastran_utility.py --type $analysisType
+          if ($LASTEXITCODE -ne 0) {
+            Log "ERROR: Nastran utility run failed"
+            exit 1
+          }
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 5: GENERATE SIMULATION REPORT
+      # ================================================================
+      - name: Install anthropic package
+        shell: powershell
+        run: |
+          & "${{ vars.PYTHON_PATH }}" -m pip install anthropic --quiet 2>&1 | Out-Null
+          & "${{ vars.PYTHON_PATH }}" -c "import anthropic; print(f'anthropic {anthropic.__version__} installed')"
+
+      - name: Generate simulation report
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $runFolder = "${{ steps.nastran.outputs.RUN_FOLDER }}"
+
+          Log "========================================================"
+          Log "  GENERATING SIMULATION REPORT"
+          Log "========================================================"
+          Log "Run folder: $runFolder"
+
+          if (-not $runFolder -or -not (Test-Path $runFolder)) {
+            Log "ERROR: Run folder not found: $runFolder"
+            exit 1
+          }
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_simulation_report.py --run-folder "$runFolder"
+          if ($LASTEXITCODE -ne 0) {
+            Log "WARNING: Simulation report generation failed (non-fatal)"
+          }
+
+          # Display report if generated
+          $reportPath = "$runFolder\simulation_report.md"
+          if (Test-Path $reportPath) {
+            Log ""
+            Log "=== SIMULATION REPORT ==="
+            Get-Content $reportPath
+            Log "========================="
+          }
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 6: CLEANUP & SUMMARY
+      # ================================================================
+      - name: Cleanup Nastran processes
+        if: always()
+        shell: powershell
+        run: |
+          Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
+          Stop-Process -Name "nastranw" -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+
+      - name: Summary
+        if: always()
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $runFolder = "${{ steps.nastran.outputs.RUN_FOLDER }}"
+
+          Log "========================================================"
+          Log "  NASTRAN UTILITY - SUMMARY"
+          Log "========================================================"
+          Log "Analysis type: ${{ steps.params.outputs.ANALYSIS_TYPE }}"
+          Log "Run folder: $runFolder"
+
+          if ($runFolder -and (Test-Path $runFolder)) {
+            Log ""
+            Log "Output files:"
+            Get-ChildItem $runFolder -File | ForEach-Object {
+              Log "  $($_.Name) ($($_.Length) bytes)"
+            }
+
+            $reportExists = Test-Path "$runFolder\simulation_report.md"
+            Log ""
+            Log "Simulation report: $(if ($reportExists) { 'YES' } else { 'NO' })"
+          }
+          Log "========================================================"

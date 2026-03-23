@@ -88,6 +88,14 @@ peaks:
 database:
   default_path: D:\thesis_database\thesis_results.db
 
+# --- Analysis Type (for Nastran Utility Workflow) --------------------------
+# sol103  = SOL 103 modal only (generates DBALL)
+# sol111  = SOL 111 random only (assumes DBALL exists)
+# full    = SOL 103 → 10s wait → SOL 111 (full DBALL chain)
+analysis:
+  type: full
+  keep_last_runs: 5              # number of timestamped run folders to keep (0 = keep all)
+
 # --- Solver Paths (machine-specific) ---------------------------------------
 paths:
   nastran_exe: "C:\\Program Files\\Siemens\\Simcenter3D\\NXNASTRAN\\bin\\nastranw.exe"
