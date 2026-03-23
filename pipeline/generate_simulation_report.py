@@ -21,9 +21,18 @@ import re
 
 
 def find_f06_files(run_folder):
-    """Find all F06 files in the run folder."""
-    return sorted(globmod.glob(os.path.join(run_folder, '*.f06')) +
-                  globmod.glob(os.path.join(run_folder, '*.F06')))
+    """Find all F06 files in the run folder (deduplicated for case-insensitive filesystems)."""
+    matches = globmod.glob(os.path.join(run_folder, '*.f06')) + \
+              globmod.glob(os.path.join(run_folder, '*.F06'))
+    # Deduplicate by normalizing paths (Windows is case-insensitive)
+    seen = set()
+    unique = []
+    for path in sorted(matches):
+        norm = os.path.normcase(os.path.normpath(path))
+        if norm not in seen:
+            seen.add(norm)
+            unique.append(path)
+    return unique
 
 
 def extract_f06_summary(f06_path, max_chars=80000):
@@ -155,8 +164,8 @@ def main():
     # Generate report
     report = generate_report(combined_content, combined_filename)
 
-    # Write report
-    with open(output_path, 'w') as f:
+    # Write report (UTF-8 to handle any Unicode in LLM output)
+    with open(output_path, 'w', encoding='utf-8') as f:
         f.write(f"# Nastran Simulation Report\n\n")
         f.write(f"**Generated:** {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  \n")
         f.write(f"**F06 Files:** {combined_filename}  \n")

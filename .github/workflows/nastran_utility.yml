@@ -117,9 +117,11 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          $ErrorActionPreference = "Continue"
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
 
           $runFolder = "${{ steps.nastran.outputs.RUN_FOLDER }}"
+          $stderrFile = "$runFolder\report_stderr.log"
 
           Log "========================================================"
           Log "  GENERATING SIMULATION REPORT"
@@ -131,8 +133,18 @@ jobs:
             exit 1
           }
 
-          & "${{ vars.PYTHON_PATH }}" pipeline/generate_simulation_report.py --run-folder "$runFolder"
-          if ($LASTEXITCODE -ne 0) {
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_simulation_report.py --run-folder "$runFolder" 2>$stderrFile
+          $exitCode = $LASTEXITCODE
+
+          if (Test-Path $stderrFile) {
+            $stderr = Get-Content $stderrFile -Raw
+            if ($stderr -and $stderr.Trim()) {
+              Log "Python stderr:"
+              Get-Content $stderrFile | ForEach-Object { Log "  $_" }
+            }
+          }
+
+          if ($exitCode -ne 0) {
             Log "WARNING: Simulation report generation failed (non-fatal)"
           }
 
@@ -141,7 +153,7 @@ jobs:
           if (Test-Path $reportPath) {
             Log ""
             Log "=== SIMULATION REPORT ==="
-            Get-Content $reportPath
+            Get-Content $reportPath -Encoding utf8
             Log "========================="
           }
           Log "========================================================"
