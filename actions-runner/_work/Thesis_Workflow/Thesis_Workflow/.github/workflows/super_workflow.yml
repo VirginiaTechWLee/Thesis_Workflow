@@ -532,6 +532,39 @@ jobs:
           }
 
       # ================================================================
+      # FEMAP CAPTURE: Grab model images (non-fatal)
+      # ================================================================
+      - name: "Femap: Capture model images"
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $imagesDir = "$reportsDir\images"
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $modelFile = "${{ vars.HEEDS_WORKING_DIR }}\${{ steps.config.outputs.STRUCTURAL_MODEL }}"
+
+          Log "========================================================"
+          Log "  FEMAP IMAGE CAPTURE (non-fatal)"
+          Log "========================================================"
+          Log "Model: $modelFile"
+          Log "Output: $imagesDir"
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/femap_capture.py `
+            --model "$modelFile" `
+            --output-dir "$imagesDir" `
+            --modes 5
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "WARNING: Femap capture failed (non-fatal, pipeline continues)"
+          } else {
+            $pngs = Get-ChildItem "$imagesDir\*.png" -ErrorAction SilentlyContinue
+            Log "Captured $($pngs.Count) images"
+          }
+          Log "========================================================"
+
+      # ================================================================
       # LLM REPORT 3: HEEDS Run Status
       # ================================================================
       - name: "LLM Report: HEEDS Run Status"
@@ -870,6 +903,44 @@ jobs:
             Log "Location: $reportsDir\00_master_report.md"
             Log "====================="
           }
+
+      # ================================================================
+      # DOCX REPORT: Build Word document with images (non-fatal)
+      # ================================================================
+      - name: "Build DOCX Report"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $imagesDir = "$reportsDir\images"
+
+          Log "========================================================"
+          Log "  BUILDING DOCX REPORT (non-fatal)"
+          Log "========================================================"
+
+          # Install python-docx if needed
+          & "${{ vars.PYTHON_PATH }}" -c "import docx" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Log "Installing python-docx..."
+            & "${{ vars.PYTHON_PATH }}" -m pip install python-docx --quiet 2>&1 | Out-Null
+          }
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/build_docx_report.py `
+            --reports-dir "$reportsDir" `
+            --images-dir "$imagesDir"
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "WARNING: DOCX report build failed (non-fatal)"
+          } else {
+            Log ""
+            Log "=== DOCX REPORT ==="
+            Log "Location: $reportsDir\pipeline_report.docx"
+            Log "===================="
+          }
+          Log "========================================================"
 
       # ================================================================
       # STAGE 8: CLEANUP & REPORT

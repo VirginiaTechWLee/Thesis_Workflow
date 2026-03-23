@@ -85,7 +85,7 @@ The pipeline uses a two-step Nastran solve:
 | 1 | Nastran Utility Workflow | ✅ COMPLETE | HIGH |
 | 2 | LLM Simulation Reports in Super Workflow | ✅ COMPLETE | HIGH |
 | 3 | Full Factorial Sweep | ⬜ Planned | HIGH |
-| 4 | Femap Image Automation + PDF/DOCX Reports | ⬜ Planned | HIGH |
+| 4 | Femap Image Automation + PDF/DOCX Reports | ✅ COMPLETE | HIGH |
 | 5 | Master Concatenated Report | ✅ COMPLETE | MEDIUM |
 | 6 | MCP Interactive Diagnostics | ⬜ Planned | NORTH STAR |
 
@@ -218,19 +218,21 @@ Feature importance analysis — which nodes/DOFs are most diagnostic = where to 
 
 ---
 
-## Task 4 — Femap Image Automation + PDF/DOCX Reports
+## Task 4 — Femap Image Automation + PDF/DOCX Reports (COMPLETE ✅)
 
-Femap COM automation to grab mesh views, mode shapes, BC overlays, and CBUSH locations as PNGs, then embed them in PDF/DOCX reports using python-docx or reportlab. Applies to both the super workflow and nastran utility workflow.
+**Completed:** 2026-03-23. Two scripts created: `pipeline/femap_capture.py` (COM automation for PNG capture) and `pipeline/build_docx_report.py` (DOCX generation with embedded images). Both integrated into super_workflow.yml with `continue-on-error: true`.
 
-**Implementation:**
-- Add Femap COM steps as `continue-on-error: true` — never blocks the pipeline
-- Capture PNGs from Femap views: mesh, mode shapes, boundary conditions, CBUSH locations
-- Embed images in PDF/DOCX using python-docx or reportlab
-- Output to REPORTS_DIR alongside LLM reports
+**Scripts:**
+- `pipeline/femap_capture.py` — Femap COM: mesh overview, BCs, CBUSH elements, mode shapes → PNGs
+- `pipeline/build_docx_report.py` — python-docx: converts MD reports + PNGs → `pipeline_report.docx`
 
-**Prerequisites:**
-- Femap installed and licensed on GL-MERCURY
-- pywin32 for COM automation
+**Key design:**
+- Femap capture exits gracefully (code 0) if Femap not installed — never blocks pipeline
+- DOCX build exits gracefully if python-docx not installed
+- Both steps use `continue-on-error: true` in workflow
+- Images saved to `REPORTS_DIR/images/`, DOCX to `REPORTS_DIR/pipeline_report.docx`
+
+**Status:** Femap is NOT currently installed on GL-MERCURY. Scripts will activate automatically once Femap is installed and its COM server is registered.
 
 ---
 
