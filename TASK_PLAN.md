@@ -5,7 +5,7 @@
 **Repo:** https://github.com/VirginiaTechWLee/Thesis_Workflow  
 **Repo root on machine:** C:\Users\waynelee\Desktop  
 **Status:** Super Workflow 16/16 stages GREEN ✅  
-**Last updated:** 2026-03-22
+**Last updated:** 2026-03-23
 
 ---
 
@@ -85,7 +85,7 @@ The pipeline uses a two-step Nastran solve:
 | 1 | Nastran Utility Workflow | ✅ COMPLETE | HIGH |
 | 2 | LLM Simulation Reports in Super Workflow | ✅ COMPLETE | HIGH |
 | 3 | Full Factorial Sweep | ⬜ Planned | HIGH |
-| 4 | Femap Image Automation + PDF/DOCX Reports | ⬜ Planned | HIGH |
+| 4 | FEM Image Automation (pyNastran+matplotlib) + DOCX/PDF Reports [LLFEM] | ✅ COMPLETE | HIGH |
 | 5 | Master Concatenated Report | ⬜ Planned | MEDIUM |
 | 6 | MCP Interactive Diagnostics | ⬜ Planned | NORTH STAR |
 
@@ -244,23 +244,46 @@ Feature importance analysis — which nodes/DOFs are most diagnostic = where to 
 
 ---
 
-## Task 4 — Femap Image Automation + PDF/DOCX Reports
+## Task 4 — FEM Image Automation (Femap/Patran) + DOCX Reports
 
-Automate Femap to capture FEM screenshots (mesh, mode shapes, boundary conditions) and embed them inline in simulation reports. Reports upgrade from plain Markdown to PDF or DOCX with embedded images.
+Automate FEM screenshot capture using **whichever pre/post-processor is available** (Femap or Patran) and embed images inline in DOCX simulation reports. Designed to work on any customer machine with either tool installed.
 
 ### Why This Matters
 - Visual verification of the FEM — mesh quality, mode shapes, boundary conditions visible at a glance
 - Reports become self-contained documents suitable for thesis chapters and advisor review
-- No manual Femap interaction needed — fully automated in the CI pipeline
+- No manual pre/post-processor interaction needed — fully automated in the CI pipeline
+- **Portable** — works with Femap OR Patran, auto-detects at runtime
 
-### Femap Automation
-Femap has a COM/API that can be scripted via Python (`win32com.client`):
-1. Open the FEM model (`.dat` or `.op2`)
-2. Set predefined views (isometric mesh, mode shape 1, BC overlay, etc.)
-3. Export screenshots as PNG to the run folder
-4. Close Femap — no GUI interaction required
+### Dual-Backend Architecture
 
-**Images to capture per run:**
+The script auto-detects which tool is available and uses the appropriate backend:
+
+```
+pipeline/fem_screenshots.py
+    ├── detect_backend()        → returns "femap", "patran", or None
+    ├── FemapBackend            → COM automation via win32com.client
+    └── PatranBackend           → PCL session file (.ses) run in batch mode
+```
+
+**Detection order:**
+1. Try Femap COM: `win32com.client.Dispatch("femap.model")` — if it connects, use Femap
+2. Check for Patran: look for `patran.exe` at known paths — if found, use Patran
+3. Neither available: skip image capture, generate text-only report with warning
+
+| | Femap | Patran |
+|---|---|---|
+| **How it works** | COM API via `win32com.client` | Generate `.ses` PCL script, run `patran.exe -sfp script.ses` in batch |
+| **Open model** | `femap.feFileOpen(path)` | `uil_file_open(path)` PCL command |
+| **Set view** | `feView` API calls | `ga_view_aa_set()` PCL commands |
+| **Export image** | `feOutputBitmap()` | `gm_write_image()` PCL command |
+| **Close** | `femap.feFileClose()` | `uil_file_close()` + process exit |
+
+### Known Install Paths (GL-MERCURY)
+- **Patran 2025.1:** `C:\Program Files\MSC.Software\Patran_x64\20251\bin\patran.exe`
+- **Femap:** Not currently installed (detect via COM registry)
+- **MSC Nastran:** `C:\Program Files\MSC.Software\MSC_Nastran\` (also available alongside Simcenter NX Nastran)
+
+### Images to Capture Per Run
 | Image | Description |
 |-------|-------------|
 | `mesh_overview.png` | Isometric view of full mesh with element coloring |
@@ -271,13 +294,13 @@ Femap has a COM/API that can be scripted via Python (`win32com.client`):
 | `cbush_locations.png` | CBUSH bolt elements highlighted on the mesh |
 
 ### Report Format Upgrade
-Switch simulation reports from `.md` to `.pdf` or `.docx` with inline images.
+Switch simulation reports from `.md` to `.docx` with inline images.
 
 **Python libraries:**
-- `python-docx` — for DOCX generation (Word-compatible, easy image embedding)
-- `fpdf2` or `reportlab` — for PDF generation
+- `python-docx` — DOCX generation (Word-compatible, easy image embedding)
 - `Pillow` — image processing if needed
-- `matplotlib` — for any additional plots (PSD curves, frequency bar charts)
+- `matplotlib` — for additional plots (PSD curves, frequency bar charts)
+- `pywin32` — COM automation for Femap backend
 
 **Report structure with images:**
 1. Model Summary + `mesh_overview.png` + `cbush_locations.png`
@@ -289,17 +312,18 @@ Switch simulation reports from `.md` to `.pdf` or `.docx` with inline images.
 7. Health Assessment
 
 ### Prerequisites
-- Femap license available on GL-MERCURY runner
+- Femap **or** Patran licensed and installed on the runner machine
 - `pip install python-docx Pillow matplotlib pywin32`
-- Femap COM registration (usually done at install time)
+- If Femap: COM registration (usually done at install time)
+- If Patran: `patran.exe` accessible at known path or on system PATH
 
 ### Files to Create/Modify
 | File | Purpose |
 |------|---------|
-| `pipeline/femap_screenshots.py` | COM automation — open model, capture views, export PNGs |
-| `pipeline/generate_simulation_report.py` | Upgrade to produce DOCX/PDF with inline images |
-| `.github/workflows/super_workflow.yml` | Add Femap screenshot step before report generation |
-| `.github/workflows/nastran_utility.yml` | Same — add Femap step |
+| `pipeline/fem_screenshots.py` | Dual-backend image capture — auto-detects Femap or Patran, captures views, exports PNGs |
+| `pipeline/generate_simulation_report.py` | Upgrade to produce DOCX with inline images (falls back to .md if no images) |
+| `.github/workflows/super_workflow.yml` | Add screenshot step before report generation |
+| `.github/workflows/nastran_utility.yml` | Same — add screenshot step |
 
 ### Applies To
 - **Super workflow** — simulation report after HEEDS runs

@@ -128,14 +128,15 @@ jobs:
           Log "========================================================"
 
       # ================================================================
-      # LLM REPORT: Install anthropic (once, conditional)
+      # LLM REPORT: Install dependencies (once, conditional)
       # ================================================================
-      - name: Install anthropic package
+      - name: Install report dependencies
         if: steps.config.outputs.LLM_REPORTS == 'true'
         shell: powershell
         run: |
-          & "${{ vars.PYTHON_PATH }}" -m pip install anthropic --quiet 2>&1 | Out-Null
+          & "${{ vars.PYTHON_PATH }}" -m pip install anthropic python-docx Pillow pywin32 --quiet 2>&1 | Out-Null
           & "${{ vars.PYTHON_PATH }}" -c "import anthropic; print(f'anthropic {anthropic.__version__} installed')"
+          & "${{ vars.PYTHON_PATH }}" -c "import docx; print('python-docx installed')"
 
       # ================================================================
       # LLM REPORT 1: Pre-Run FEM Health Check
@@ -853,7 +854,7 @@ jobs:
       # ================================================================
       # STAGE 8: CLEANUP & REPORT
       # ================================================================
-      - name: Cleanup HEEDS processes
+      - name: Cleanup HEEDS and Patran processes
         if: always()
         shell: powershell
         run: |
@@ -861,6 +862,7 @@ jobs:
           Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
           Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
           Stop-Process -Name "nastranw" -Force -ErrorAction SilentlyContinue
+          Stop-Process -Name "patran" -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2
 
       - name: Report Results

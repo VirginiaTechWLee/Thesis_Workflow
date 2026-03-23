@@ -104,14 +104,47 @@ jobs:
           Log "========================================================"
 
       # ================================================================
-      # STAGE 5: GENERATE SIMULATION REPORT
+      # STAGE 5: FEM SCREENSHOTS (auto-detect Femap/Patran)
       # ================================================================
-      - name: Install anthropic package
+      - name: Install report dependencies
         shell: powershell
         run: |
-          & "${{ vars.PYTHON_PATH }}" -m pip install anthropic --quiet 2>&1 | Out-Null
-          & "${{ vars.PYTHON_PATH }}" -c "import anthropic; print(f'anthropic {anthropic.__version__} installed')"
+          & "${{ vars.PYTHON_PATH }}" -m pip install anthropic python-docx Pillow pywin32 --quiet 2>&1 | Out-Null
+          & "${{ vars.PYTHON_PATH }}" -c "import anthropic; print(f'anthropic {anthropic.__version__}')"
+          & "${{ vars.PYTHON_PATH }}" -c "import docx; print(f'python-docx installed')"
 
+      - name: Capture FEM screenshots
+        id: screenshots
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $runFolder = "${{ steps.nastran.outputs.RUN_FOLDER }}"
+
+          Log "========================================================"
+          Log "  CAPTURING FEM SCREENSHOTS"
+          Log "========================================================"
+          Log "Run folder: $runFolder"
+
+          if (-not $runFolder -or -not (Test-Path $runFolder)) {
+            Log "WARNING: Run folder not found, skipping screenshots"
+            echo "HAS_IMAGES=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/fem_screenshots.py --run-folder "$runFolder"
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Log "WARNING: Screenshot capture failed (non-fatal, will generate text-only report)"
+            echo "HAS_IMAGES=false" >> $env:GITHUB_OUTPUT
+          }
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 6: GENERATE SIMULATION REPORT (DOCX if images, else MD)
+      # ================================================================
       - name: Generate simulation report
         shell: powershell
         env:
@@ -148,12 +181,16 @@ jobs:
             Log "WARNING: Simulation report generation failed (non-fatal)"
           }
 
-          # Display report if generated
-          $reportPath = "$runFolder\simulation_report.md"
-          if (Test-Path $reportPath) {
+          # Display report if generated (always display .md backup for CI log)
+          $reportMd = "$runFolder\simulation_report.md"
+          $reportDocx = "$runFolder\simulation_report.docx"
+          if (Test-Path $reportDocx) {
+            Log "DOCX report generated: $reportDocx"
+          }
+          if (Test-Path $reportMd) {
             Log ""
             Log "=== SIMULATION REPORT ==="
-            Get-Content $reportPath -Encoding utf8
+            Get-Content $reportMd -Encoding utf8
             Log "========================="
           }
           Log "========================================================"
@@ -161,12 +198,13 @@ jobs:
       # ================================================================
       # STAGE 6: CLEANUP & SUMMARY
       # ================================================================
-      - name: Cleanup Nastran processes
+      - name: Cleanup Nastran and Patran processes
         if: always()
         shell: powershell
         run: |
           Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
           Stop-Process -Name "nastranw" -Force -ErrorAction SilentlyContinue
+          Stop-Process -Name "patran" -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2
 
       - name: Summary
@@ -190,8 +228,12 @@ jobs:
               Log "  $($_.Name) ($($_.Length) bytes)"
             }
 
-            $reportExists = Test-Path "$runFolder\simulation_report.md"
+            $reportMd = Test-Path "$runFolder\simulation_report.md"
+            $reportDocx = Test-Path "$runFolder\simulation_report.docx"
+            $imageCount = (Get-ChildItem "$runFolder\*.png" -ErrorAction SilentlyContinue | Measure-Object).Count
             Log ""
-            Log "Simulation report: $(if ($reportExists) { 'YES' } else { 'NO' })"
+            Log "Simulation report (MD): $(if ($reportMd) { 'YES' } else { 'NO' })"
+            Log "Simulation report (DOCX): $(if ($reportDocx) { 'YES' } else { 'NO' })"
+            Log "FEM screenshots: $imageCount"
           }
           Log "========================================================"

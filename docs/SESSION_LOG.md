@@ -560,3 +560,24 @@ Implementing Task 2 from TASK_PLAN.md — 7 LLM reports embedded in the super wo
 **Enable via:** workflow_dispatch checkbox OR `pipeline.llm_reports: true` in config.yaml
 
 **Result:** Workflow run 23419303181 — all 26 steps GREEN in 4m12s. All 7 markdown reports generated in `D:\thesis_database\pipeline_reports\bolt3_sweep_20260322_224956\`. Executive summary correctly synthesized all 6 prior reports. Task 2 COMPLETE.
+
+### 2026-03-23 — Task 4: FEM Image Automation + DOCX/PDF Reports — STATUS: ACTIVE
+
+**Context:** Previous session built everything but crashed before committing. This session picks up where it left off.
+
+**What was built (previous session, uncommitted):**
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `pipeline/fem_screenshots.py` | 765 | Pure pyNastran+matplotlib FEM visualizer. Generates 7+ PNG images (mesh, BCs, 3 mode shapes, CBUSH locations, PSD response, frequency bar chart). Thick beam rendering for CBEAM elements. Runs headless in CI — no Femap/Patran required. |
+| `pipeline/generate_simulation_report.py` | 591 | Major upgrade: DOCX with LLFEM branding (blue badge, disclaimer, metadata table), inline FEM image gallery, PDF conversion via docx2pdf. Falls back to markdown if python-docx missing. |
+| `.github/workflows/nastran_utility.yml` | +64 lines | Wired fem_screenshots.py + generate_simulation_report.py into workflow stages |
+
+**Key decisions:**
+- Skipped Patran batch mode (untested on GL-MERCURY, risky) — used pyNastran+matplotlib instead (pure Python, CI-safe)
+- CBEAM elements rendered as thick bars, CBUSH bolts as distinct markers
+- All reports branded with `[LLFEM]` tag so AI-generated content is clearly identified
+- DOCX + PDF dual output (docx2pdf installed, uses Word COM)
+- Tested successfully: DOCX verified with LLFEM branding, PDF generated at 997KB
+
+**This session:** Committing all changes, updating TASK_PLAN.md, pushing, triggering end-to-end test.
