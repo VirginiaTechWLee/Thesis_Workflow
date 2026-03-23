@@ -85,7 +85,9 @@ The pipeline uses a two-step Nastran solve:
 | 1 | Nastran Utility Workflow | ✅ COMPLETE | HIGH |
 | 2 | LLM Simulation Reports in Super Workflow | ✅ COMPLETE | HIGH |
 | 3 | Full Factorial Sweep | ⬜ Planned | HIGH |
-| 4 | MCP Interactive Diagnostics | ⬜ Planned | NORTH STAR |
+| 4 | Femap Image Automation + PDF/DOCX Reports | ⬜ Planned | HIGH |
+| 5 | Master Concatenated Report | ⬜ Planned | MEDIUM |
+| 6 | MCP Interactive Diagnostics | ⬜ Planned | NORTH STAR |
 
 ---
 
@@ -206,6 +208,32 @@ Body: {"event_type": "nastran_validation"}
 
 ---
 
+## Task 2 Detail — LLM Simulation Reports in Super Workflow (COMPLETE ✅)
+
+**Completed:** 2026-03-22. All 7 LLM report steps added to `super_workflow.yml`.
+
+### What Was Built
+`pipeline/generate_pipeline_report.py` — single script handling 7 report types, each with a grounded system prompt (temperature=0, no outside knowledge). Reports are generated at each pipeline stage and written to `current_run/llm_reports/`.
+
+### Report Types
+| # | Report | Trigger Point | Data Source |
+|---|--------|--------------|-------------|
+| 1 | `01_fem_health.md` | After FEM validation | DAT file |
+| 2 | `02_study_plan.md` | After config read | config.yaml + .heeds XML |
+| 3 | `03_heeds_status.md` | After HEEDS sweep | Study log + design count |
+| 4 | `04_db_health.md` | After DB import | SQLite queries |
+| 5 | `05_feature_matrix.md` | After feature extraction | training_matrix.npz stats |
+| 6 | `06_classification.md` | After ML training | classification_report.txt |
+| 7 | `07_executive_summary.md` | Final stage | All 6 prior reports |
+
+### Guardrails
+- System prompt: *"Analyze ONLY the data provided. Do not use any outside knowledge."*
+- Temperature = 0 (deterministic)
+- Only actual file/DB contents passed — no web search, no external context
+- Each report sandboxed between `--- BEGIN DATA ---` / `--- END DATA ---`
+
+---
+
 ## Task 3 — Full Factorial Sweep
 
 Update `fem_input/config.yaml` to run all 10 bolts × multiple stiffness levels.
@@ -216,7 +244,102 @@ Feature importance analysis — which nodes/DOFs are most diagnostic = where to 
 
 ---
 
-## Task 4 — MCP Interactive Diagnostics (North Star)
+## Task 4 — Femap Image Automation + PDF/DOCX Reports
+
+Automate Femap to capture FEM screenshots (mesh, mode shapes, boundary conditions) and embed them inline in simulation reports. Reports upgrade from plain Markdown to PDF or DOCX with embedded images.
+
+### Why This Matters
+- Visual verification of the FEM — mesh quality, mode shapes, boundary conditions visible at a glance
+- Reports become self-contained documents suitable for thesis chapters and advisor review
+- No manual Femap interaction needed — fully automated in the CI pipeline
+
+### Femap Automation
+Femap has a COM/API that can be scripted via Python (`win32com.client`):
+1. Open the FEM model (`.dat` or `.op2`)
+2. Set predefined views (isometric mesh, mode shape 1, BC overlay, etc.)
+3. Export screenshots as PNG to the run folder
+4. Close Femap — no GUI interaction required
+
+**Images to capture per run:**
+| Image | Description |
+|-------|-------------|
+| `mesh_overview.png` | Isometric view of full mesh with element coloring |
+| `boundary_conditions.png` | SPC constraints highlighted |
+| `mode_shape_01.png` | First mode shape from SOL 103 |
+| `mode_shape_02.png` | Second mode shape |
+| `mode_shape_03.png` | Third mode shape |
+| `cbush_locations.png` | CBUSH bolt elements highlighted on the mesh |
+
+### Report Format Upgrade
+Switch simulation reports from `.md` to `.pdf` or `.docx` with inline images.
+
+**Python libraries:**
+- `python-docx` — for DOCX generation (Word-compatible, easy image embedding)
+- `fpdf2` or `reportlab` — for PDF generation
+- `Pillow` — image processing if needed
+- `matplotlib` — for any additional plots (PSD curves, frequency bar charts)
+
+**Report structure with images:**
+1. Model Summary + `mesh_overview.png` + `cbush_locations.png`
+2. Boundary Conditions + `boundary_conditions.png`
+3. Natural Frequencies + `mode_shape_01.png` through `mode_shape_03.png`
+4. Warnings and Fatals (text only)
+5. DBALL Chain Status (text only)
+6. Random Response Summary + PSD plot if available
+7. Health Assessment
+
+### Prerequisites
+- Femap license available on GL-MERCURY runner
+- `pip install python-docx Pillow matplotlib pywin32`
+- Femap COM registration (usually done at install time)
+
+### Files to Create/Modify
+| File | Purpose |
+|------|---------|
+| `pipeline/femap_screenshots.py` | COM automation — open model, capture views, export PNGs |
+| `pipeline/generate_simulation_report.py` | Upgrade to produce DOCX/PDF with inline images |
+| `.github/workflows/super_workflow.yml` | Add Femap screenshot step before report generation |
+| `.github/workflows/nastran_utility.yml` | Same — add Femap step |
+
+### Applies To
+- **Super workflow** — simulation report after HEEDS runs
+- **Nastran utility workflow** — simulation report after standalone FEM validation
+- **Future:** Pipeline reports (01–07) could also get images where relevant
+
+---
+
+## Task 5 — Master Concatenated Report
+
+Generate a single master document that concatenates all LLM reports from a pipeline run into one self-contained PDF/DOCX.
+
+### Why This Matters
+- One document to hand to advisor/committee — not 8 separate markdown files
+- Executive summary + all supporting detail in one place
+- Table of contents, page numbers, consistent formatting
+
+### What It Does
+After all 7 pipeline reports + simulation report are generated, a final script:
+1. Reads `01_fem_health.md` through `07_executive_summary.md` + `simulation_report.md`
+2. Concatenates them in order with section headers and page breaks
+3. Embeds any Femap images (from Task 4) inline at the relevant sections
+4. Adds a cover page (study name, date, engineer, machine)
+5. Adds table of contents
+6. Outputs `master_report.pdf` or `master_report.docx` to `current_run/`
+
+### Python Libraries
+- `python-docx` — DOCX assembly with sections, TOC, images
+- `fpdf2` or `reportlab` — PDF alternative
+- `Pillow` — image handling
+
+### Files to Create/Modify
+| File | Purpose |
+|------|---------|
+| `pipeline/generate_master_report.py` | Concatenation script — reads all reports, assembles one doc |
+| `.github/workflows/super_workflow.yml` | Add final step after executive summary |
+
+---
+
+## Task 6 — MCP Interactive Diagnostics (North Star)
 
 Claude Desktop connected to live SQLite database and trained model via MCP SQLite server and filesystem MCP server.
 
