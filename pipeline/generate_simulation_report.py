@@ -585,7 +585,32 @@ def _add_memf_section(doc, f06_path):
                 for run in p.runs:
                     run.font.bold = True
 
+    # Grey-out rows above 2000 Hz (outside typical random vib spec range)
+    FREQ_CUTOFF = 2000.0
+    for ri, mode in enumerate(memf['modes'], start=1):
+        if mode['freq'] > FREQ_CUTOFF:
+            for cell in tbl.rows[ri].cells:
+                for p in cell.paragraphs:
+                    for run in p.runs:
+                        run.font.color.rgb = RGBColor(0xAA, 0xAA, 0xAA)
+
     _style_table(tbl, doc)
+
+    # Engineering note on frequency range of interest
+    above_cutoff = [m for m in memf['modes'] if m['freq'] > FREQ_CUTOFF]
+    if above_cutoff:
+        note2 = doc.add_paragraph()
+        n2_run = note2.add_run(
+            f"Modes above {FREQ_CUTOFF:.0f} Hz (greyed out) are outside the "
+            "typical launch vehicle random vibration qualification range "
+            "(e.g., GEVS, SMC-S-016). They do not contribute to the "
+            "random response analysis (SOL 111) and are retained only for "
+            "modal completeness."
+        )
+        n2_run.font.size = Pt(9)
+        n2_run.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
+        n2_run.italic = True
+
     doc.add_paragraph()
 
 
