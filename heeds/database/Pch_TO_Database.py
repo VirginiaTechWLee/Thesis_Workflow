@@ -202,7 +202,8 @@ def calculate_area(freq_psd_list):
     frequencies = np.array([x[0] for x in freq_psd_list])
     psd_values = np.array([x[1] for x in freq_psd_list])
     
-    return np.trapezoid(psd_values, frequencies)
+    trapz_fn = getattr(np, 'trapezoid', None) or np.trapz
+    return trapz_fn(psd_values, frequencies)
 
 
 def get_or_create_study(conn, study_name, study_type='manual', description=None):
