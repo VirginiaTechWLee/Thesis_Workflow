@@ -16,6 +16,11 @@ on:
         options:
           - overwrite_existing
           - skip_if_exists
+      llm_reports:
+        description: 'Generate LLM reports at each pipeline stage'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   super-pipeline:
@@ -56,6 +61,26 @@ jobs:
           $timeoutMin = [int]"${{ github.event.inputs.timeout_minutes }}"
           $timeoutSec = $timeoutMin * 60
           echo "TIMEOUT_SEC=$timeoutSec" >> $env:GITHUB_OUTPUT
+
+          # LLM reports: workflow_dispatch input overrides config
+          $llmInput = "${{ github.event.inputs.llm_reports }}"
+          if ($llmInput -eq "true") {
+            $llmReports = "true"
+          } else {
+            # Fall back to config value
+            $llmConfig = ($configOutput | Where-Object { $_ -match '^LLM_REPORTS=' }) -replace '^LLM_REPORTS=', ''
+            $llmReports = if ($llmConfig -eq "true") { "true" } else { "false" }
+          }
+          echo "LLM_REPORTS=$llmReports" >> $env:GITHUB_OUTPUT
+          Log "  LLM_REPORTS = $llmReports"
+
+          # Set up reports output directory
+          $dbDir = Split-Path ($configOutput | Where-Object { $_ -match '^DB_PATH=' } | ForEach-Object { $_ -replace '^DB_PATH=', '' })
+          $studyName = ($configOutput | Where-Object { $_ -match '^STUDY_NAME=' } | ForEach-Object { $_ -replace '^STUDY_NAME=', '' })
+          $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+          $reportsDir = "$dbDir\pipeline_reports\${studyName}_${timestamp}"
+          echo "REPORTS_DIR=$reportsDir" >> $env:GITHUB_OUTPUT
+          Log "  REPORTS_DIR = $reportsDir"
 
           Log "========================================================"
 
@@ -101,6 +126,37 @@ jobs:
           }
 
           Log "========================================================"
+
+      # ================================================================
+      # LLM REPORT: Install anthropic (once, conditional)
+      # ================================================================
+      - name: Install anthropic package
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        run: |
+          & "${{ vars.PYTHON_PATH }}" -m pip install anthropic --quiet 2>&1 | Out-Null
+          & "${{ vars.PYTHON_PATH }}" -c "import anthropic; print(f'anthropic {anthropic.__version__} installed')"
+
+      # ================================================================
+      # LLM REPORT 1: Pre-Run FEM Health Check
+      # ================================================================
+      - name: "LLM Report: Pre-Run FEM Health Check"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $stderrFile = "$reportsDir\report1_stderr.log"
+          New-Item -ItemType Directory -Path $reportsDir -Force | Out-Null
+          Log "Generating FEM Health Check report..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type fem_health `
+            --data-file "fem_input/${{ steps.config.outputs.STRUCTURAL_MODEL }}" `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: FEM health report failed (non-fatal)" }
 
       # ================================================================
       # STAGE 3: GENERATE PIPELINE FILES
@@ -165,6 +221,28 @@ jobs:
             Log "[WARN] PCH VisFile entry NOT found"
           }
           Log "========================================================"
+
+      # ================================================================
+      # LLM REPORT 2: Study Plan Summary
+      # ================================================================
+      - name: "LLM Report: Study Plan Summary"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $stderrFile = "$reportsDir\report2_stderr.log"
+          Log "Generating Study Plan Summary..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type study_plan `
+            --data-file "heeds/projects/${studyName}.heeds" `
+            --config-file "fem_input/config.yaml" `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Study plan report failed (non-fatal)" }
 
       # ================================================================
       # STAGE 4: PREPARE HEEDS EXECUTION
@@ -454,6 +532,42 @@ jobs:
           }
 
       # ================================================================
+      # LLM REPORT 3: HEEDS Run Status
+      # ================================================================
+      - name: "LLM Report: HEEDS Run Status"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $studyLog = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1\Study_1.log"
+          $stderrFile = "$reportsDir\report3_stderr.log"
+
+          # Build extra data with design verification
+          $post0 = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1\POST_0"
+          $extra = "Design verification:`n"
+          if (Test-Path $post0) {
+            Get-ChildItem "$post0\Design*" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+              $pch = Test-Path "$($_.FullName)\Analysis_1\randombeamx.pch"
+              $csv = Test-Path "$($_.FullName)\Analysis_1\acceleration_results.csv"
+              $extra += "  $($_.Name): PCH=$pch CSV=$csv`n"
+            }
+          }
+          $extra += "Expected designs: ${{ steps.config.outputs.EXPECTED_DESIGNS }}"
+
+          Log "Generating HEEDS Run Status report..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type heeds_status `
+            --data-file "$studyLog" `
+            --output-dir "$reportsDir" `
+            --extra-data "$extra" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: HEEDS status report failed (non-fatal)" }
+
+      # ================================================================
       # STAGE 6: DATABASE IMPORT
       # ================================================================
       - name: Setup database
@@ -559,6 +673,26 @@ jobs:
           Log "========================================================"
 
       # ================================================================
+      # LLM REPORT 4: Database Health
+      # ================================================================
+      - name: "LLM Report: Database Health"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $stderrFile = "$reportsDir\report4_stderr.log"
+          Log "Generating Database Health report..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type db_health `
+            --db-path "${{ steps.config.outputs.DB_PATH }}" `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: DB health report failed (non-fatal)" }
+
+      # ================================================================
       # STAGE 7: ML TRAINING
       # ================================================================
       - name: Extract features
@@ -648,6 +782,73 @@ jobs:
             Get-Content $reportFile
           }
           Log "========================================================"
+
+      # ================================================================
+      # LLM REPORT 5: Feature Matrix
+      # ================================================================
+      - name: "LLM Report: Feature Matrix"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $dbDir = Split-Path "${{ steps.config.outputs.DB_PATH }}"
+          $stderrFile = "$reportsDir\report5_stderr.log"
+          Log "Generating Feature Matrix report..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type feature_matrix `
+            --data-file "$dbDir\training_matrix.npz" `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Feature matrix report failed (non-fatal)" }
+
+      # ================================================================
+      # LLM REPORT 6: Classification
+      # ================================================================
+      - name: "LLM Report: Classification"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $dbDir = Split-Path "${{ steps.config.outputs.DB_PATH }}"
+          $stderrFile = "$reportsDir\report6_stderr.log"
+          Log "Generating Classification report..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type classification `
+            --data-file "$dbDir\classification_report.txt" `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Classification report failed (non-fatal)" }
+
+      # ================================================================
+      # LLM REPORT 7: Executive Summary
+      # ================================================================
+      - name: "LLM Report: Pipeline Executive Summary"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $stderrFile = "$reportsDir\report7_stderr.log"
+          Log "Generating Pipeline Executive Summary..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type executive_summary `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Executive summary report failed (non-fatal)" }
+          else {
+            Log ""
+            Log "=== EXECUTIVE SUMMARY ==="
+            Get-Content "$reportsDir\07_executive_summary.md" -Encoding utf8
+            Log "========================="
+          }
 
       # ================================================================
       # STAGE 8: CLEANUP & REPORT

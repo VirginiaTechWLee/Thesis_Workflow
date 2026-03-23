@@ -88,6 +88,10 @@ peaks:
 database:
   default_path: D:\thesis_database\thesis_results.db
 
+# --- Pipeline Options -------------------------------------------------------
+pipeline:
+  llm_reports: false              # generate LLM reports at each pipeline stage
+
 # --- Analysis Type (for Nastran Utility Workflow) --------------------------
 # sol103  = SOL 103 modal only (generates DBALL)
 # sol111  = SOL 111 random only (assumes DBALL exists)

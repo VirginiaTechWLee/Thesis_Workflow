@@ -83,7 +83,7 @@ The pipeline uses a two-step Nastran solve:
 | # | Task | Status | Priority |
 |---|------|--------|----------|
 | 1 | Nastran Utility Workflow | ✅ COMPLETE | HIGH |
-| 2 | LLM Simulation Reports in Super Workflow | 🔵 NEXT | HIGH |
+| 2 | LLM Simulation Reports in Super Workflow | 🟡 ACTIVE | HIGH |
 | 3 | Full Factorial Sweep | ⬜ Planned | HIGH |
 | 4 | MCP Interactive Diagnostics | ⬜ Planned | NORTH STAR |
 

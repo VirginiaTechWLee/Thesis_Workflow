@@ -529,3 +529,32 @@ Body: {"event_type": "nastran_validation", "client_payload": {"analysis_type": "
 ```
 
 **Next:** Commit, push, and test trigger.
+
+### 2026-03-23 — Task 2: LLM Simulation Reports in Super Workflow — STATUS: ACTIVE
+
+Implementing Task 2 from TASK_PLAN.md — 7 LLM reports embedded in the super workflow.
+
+**Files created/modified:**
+
+| File | Action | Purpose |
+|------|--------|---------|
+| `fem_input/config.yaml` | Modified | Added `pipeline.llm_reports: false` toggle |
+| `pipeline/read_config.py` | Modified | Outputs `LLM_REPORTS` flag |
+| `pipeline/generate_pipeline_report.py` | Created | Single script handling all 7 report types via Anthropic API |
+| `.github/workflows/super_workflow.yml` | Modified | Added `llm_reports` input + 7 conditional report steps |
+| `docs/ANTHROPIC_API_SETUP.md` | Created | API key setup guide with cost estimates |
+
+**7 reports generated (when llm_reports=true):**
+
+| # | Report | Trigger Point | Data Source |
+|---|--------|--------------|-------------|
+| 1 | Pre-Run FEM Health Check | After validation | DAT file |
+| 2 | Study Plan Summary | After .heeds generation | config.yaml + .heeds |
+| 3 | HEEDS Run Status | After HEEDS completes | Study log + design verification |
+| 4 | Database Health | After DB import | SQLite queries |
+| 5 | Feature Matrix | After feature extraction | training_matrix.npz |
+| 6 | Classification | After classifier training | classification_report.txt |
+| 7 | Executive Summary | End of pipeline | All 6 prior reports |
+
+**Output location:** `D:\thesis_database\pipeline_reports\<study_name>_<timestamp>\`
+**Enable via:** workflow_dispatch checkbox OR `pipeline.llm_reports: true` in config.yaml
