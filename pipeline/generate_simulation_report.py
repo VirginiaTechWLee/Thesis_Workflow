@@ -24,6 +24,11 @@ import glob as globmod
 import re
 import datetime
 
+# Load .env so ANTHROPIC_API_KEY is available for local runs
+sys.path.insert(0, os.path.dirname(__file__))
+from config_loader import load_dotenv
+load_dotenv()
+
 
 # ---------------------------------------------------------------------------
 # LLFEM Branding Constants
@@ -76,6 +81,13 @@ def extract_f06_summary(f06_path, max_chars=80000):
         for m in matches[:3]:
             sections.append(m[:5000])
 
+    # Modal effective mass fraction tables
+    for pattern in [r'MODAL EFFECTIVE MASS FRACTION.*?(?=\x0c|1\s+\S.*?PAGE)',
+                    r'TOTAL EFFECTIVE MASS FRACTION.*?(?=\n\s*\n\s*\n)']:
+        matches = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
+        for m in matches[:2]:
+            sections.append(m[:5000])
+
     # FATAL and WARNING messages
     for line_num, line in enumerate(lines):
         if re.search(r'(FATAL|WARNING|USER INFORMATION)', line, re.IGNORECASE):
@@ -93,7 +105,7 @@ def extract_f06_summary(f06_path, max_chars=80000):
 # ---------------------------------------------------------------------------
 # LLM Report Generation
 # ---------------------------------------------------------------------------
-def generate_report(f06_content, f06_filename):
+def generate_report(f06_content, f06_filename, model_input_content=""):
     """Call Anthropic API to generate simulation report."""
     try:
         import anthropic
@@ -110,23 +122,38 @@ def generate_report(f06_content, f06_filename):
 
     system_prompt = (
         "You are a Nastran simulation analyst generating an LLFEM report. "
-        "Analyze ONLY the F06 content provided to you in this message. "
-        "Do not use any outside knowledge about Nastran, spacecraft, or structural "
-        "analysis. If the data does not support a conclusion, say so explicitly. "
-        "Never invent frequencies, results, or conclusions not present in the "
-        "provided data. Flag any FATAL errors, list natural frequencies, summarize "
-        "random response results, and state whether the model is healthy and "
-        "DBALL-ready. Use clear section headers with ## markdown syntax."
+        "Analyze ONLY the data provided to you in this message (F06 output "
+        "and model input files). Do not use any outside knowledge about "
+        "Nastran, spacecraft, or structural analysis. If the data does not "
+        "support a conclusion, say so explicitly. Never invent frequencies, "
+        "results, or conclusions not present in the provided data. Flag any "
+        "FATAL errors, list natural frequencies, summarize random response "
+        "results, and state whether the model is healthy and DBALL-ready. "
+        "Use clear section headers with ## markdown syntax."
     )
 
+    model_input_block = ""
+    if model_input_content:
+        model_input_block = (
+            "\n\n--- BEGIN MODEL INPUT FILES (DAT + CBUSH properties) ---\n"
+            f"{model_input_content}\n"
+            "--- END MODEL INPUT FILES ---\n"
+        )
+
     user_prompt = (
-        f"Analyze this Nastran F06 output file ({f06_filename}) and produce a "
-        "simulation report with these sections:\n\n"
+        f"Analyze this Nastran simulation ({f06_filename}) and produce a "
+        "simulation report with these sections. NOTE: Material properties, "
+        "beam cross-section, and CBUSH stiffness tables are handled separately — "
+        "do NOT include those sections.\n\n"
         "1. **Model Summary** — nodes, elements, CBUSH count, boundary conditions\n"
-        "2. **Natural Frequencies** — first 10 modes with frequencies in Hz\n"
+        "2. **Natural Frequencies** — first 10 modes with frequencies in Hz "
+        "(use a markdown table: | Mode | Frequency (Hz) | Generalized Mass | )\n"
         "3. **Warnings and Fatals** — any FATAL or WARNING messages\n"
-        "4. **DBALL Chain Status** — did SOL 103 and/or SOL 111 complete cleanly\n"
-        "5. **Random Response Summary** — peak PSD values, dominant frequencies (if present)\n"
+        "4. **DBALL Chain Status** — explicitly state which solution sequences ran "
+        "(SOL 103 modal analysis AND/OR SOL 111 frequency response / random vibration). "
+        "State whether each completed successfully.\n"
+        "5. **Random Response Summary** — peak PSD values, dominant frequencies "
+        "(if SOL 111 data is present)\n"
         "6. **Health Assessment** — is this FEM ready for the super workflow?\n\n"
         "--- BEGIN F06 CONTENT ---\n"
         f"{f06_content}\n"
@@ -201,9 +228,801 @@ IMAGE_ORDER = [
 
 
 # ---------------------------------------------------------------------------
+# Model Properties Parser (from DAT + BLK files)
+# ---------------------------------------------------------------------------
+def _parse_nastran_field(field_str):
+    """Parse a Nastran short-field value like '6.898+7' or '1.+6' into a float."""
+    s = field_str.strip()
+    if not s:
+        return None
+    # Nastran shorthand: 6.898+7 means 6.898e+7, 1.+6 means 1.0e+6
+    s = re.sub(r'(?<=[0-9.])\+', 'e+', s)
+    s = re.sub(r'(?<=[0-9.])\-', 'e-', s)
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _format_eng(val):
+    """Format a float in 'e' notation for display (e.g. 1.20e6)."""
+    if val is None:
+        return "—"
+    abs_val = abs(val)
+    if abs_val == 0:
+        return "0"
+    import math
+    exp = int(math.floor(math.log10(abs_val)))
+    coeff = val / 10**exp
+    return f"{coeff:.2f}e{exp}"
+
+
+def _parse_model_inputs(run_folder):
+    """Parse DAT and BLK files for material, beam, and CBUSH properties.
+
+    Also extracts element counts, SOL sequences, INCLUDE references,
+    SPC cards, and input filenames for pipeline context awareness.
+    """
+    import glob as gmod
+    info = {
+        'material': {}, 'beam': {}, 'cbush': [],
+        'elements': {},       # e.g. {'CBEAM': 10, 'CBUSH': 10, 'CQUAD4': 500}
+        'sol_sequences': [],  # e.g. [103, 111]
+        'include_files': [],  # e.g. ['Bush_bolt3_loose.blk']
+        'spc_nodes': [],      # e.g. [1]
+        'spc_dofs': '',       # e.g. '123456'
+        'input_files': [],    # basenames of DAT + BLK found
+    }
+
+    # Find DAT files
+    dat_files = gmod.glob(os.path.join(run_folder, '*.dat')) + \
+                gmod.glob(os.path.join(run_folder, '*.DAT'))
+    blk_files = gmod.glob(os.path.join(run_folder, '*.blk')) + \
+                gmod.glob(os.path.join(run_folder, '*.BLK'))
+
+    # Record input filenames
+    for fpath in dat_files + blk_files:
+        info['input_files'].append(os.path.basename(fpath))
+
+    all_lines = []
+    for fpath in dat_files + blk_files:
+        try:
+            with open(fpath, 'r', errors='ignore') as f:
+                all_lines.extend(f.readlines())
+        except Exception:
+            pass
+
+    for line in all_lines:
+        stripped = line.strip()
+
+        # MAT1 card: MAT1, MID, E, G, NU, RHO, A, TREF
+        if stripped.upper().startswith('MAT1'):
+            fields = stripped.split()
+            if len(fields) >= 5:
+                mat_name = ""
+                # Check previous line for comment with material name
+                idx = all_lines.index(line)
+                if idx > 0:
+                    prev = all_lines[idx - 1].strip()
+                    if prev.startswith('$') and 'Material' in prev:
+                        mat_name = prev.lstrip('$ ').split(':')[1].strip() if ':' in prev else prev.lstrip('$ ')
+                info['material'] = {
+                    'id': fields[1] if len(fields) > 1 else '',
+                    'name': mat_name,
+                    'E': _parse_nastran_field(fields[2]) if len(fields) > 2 else None,
+                    'G': _parse_nastran_field(fields[3]) if len(fields) > 3 else None,
+                    'nu': _parse_nastran_field(fields[4]) if len(fields) > 4 else None,
+                    'rho': _parse_nastran_field(fields[5]) if len(fields) > 5 else None,
+                    'alpha': _parse_nastran_field(fields[6]) if len(fields) > 6 else None,
+                }
+
+        # PBEAML card: PBEAML, PID, MID, GROUP, TYPE, ...
+        if stripped.upper().startswith('PBEAML'):
+            fields = stripped.split()
+            # Continuation line has dimensions
+            idx = all_lines.index(line)
+            dims = []
+            if idx + 1 < len(all_lines):
+                cont = all_lines[idx + 1].strip()
+                if cont.startswith('+') or (not cont.startswith('$') and not cont.upper().startswith(('GRID', 'CBEAM', 'CBUSH', 'MAT', 'SPC', 'PBUSH', 'ENDDATA'))):
+                    dim_fields = cont.lstrip('+').split()
+                    for df in dim_fields:
+                        v = _parse_nastran_field(df)
+                        if v is not None:
+                            dims.append(v)
+            section_type = fields[4] if len(fields) > 4 else 'Unknown'
+            info['beam'] = {
+                'pid': fields[1] if len(fields) > 1 else '',
+                'mid': fields[2] if len(fields) > 2 else '',
+                'type': section_type,
+                'dims': dims,
+            }
+
+        # PBUSH card: PBUSH, PID, "K", K1, K2, K3, K4, K5, K6
+        if stripped.upper().startswith('PBUSH'):
+            fields = stripped.split()
+            if len(fields) >= 4 and fields[2].upper() == 'K':
+                bolt_id = fields[1]
+                stiffness = []
+                for i in range(3, min(9, len(fields))):
+                    stiffness.append(_parse_nastran_field(fields[i]))
+                # Pad to 6 DOF
+                while len(stiffness) < 6:
+                    stiffness.append(None)
+                info['cbush'].append({
+                    'id': bolt_id,
+                    'K1': stiffness[0], 'K2': stiffness[1], 'K3': stiffness[2],
+                    'K4': stiffness[3], 'K5': stiffness[4], 'K6': stiffness[5],
+                })
+
+        # Element cards — count by type (CBEAM, CBUSH, CQUAD4, CTRIA3, etc.)
+        upper = stripped.upper()
+        for etype in ('CBEAM', 'CBAR', 'CBUSH', 'CQUAD4', 'CTRIA3', 'CHEXA',
+                      'CTETRA', 'CPENTA', 'CROD', 'CONROD', 'CELAS1', 'CELAS2',
+                      'CMASS1', 'CMASS2', 'CSHEAR', 'CONM2', 'RBE2', 'RBE3'):
+            if upper.startswith(etype) and (len(upper) == len(etype) or
+                                            not upper[len(etype)].isalpha()):
+                info['elements'][etype] = info['elements'].get(etype, 0) + 1
+                break
+
+        # SOL card
+        if upper.startswith('SOL ') or upper.startswith('SOL,'):
+            sol_match = re.search(r'SOL\s*[,]?\s*(\d+)', upper)
+            if sol_match:
+                sol_num = int(sol_match.group(1))
+                if sol_num not in info['sol_sequences']:
+                    info['sol_sequences'].append(sol_num)
+
+        # INCLUDE statement
+        if upper.startswith('INCLUDE'):
+            inc_match = re.search(r"INCLUDE\s+['\"]?([^'\"]+)['\"]?", stripped, re.IGNORECASE)
+            if inc_match:
+                inc_name = inc_match.group(1).strip()
+                if inc_name not in info['include_files']:
+                    info['include_files'].append(inc_name)
+
+        # SPC card: SPC, SID, GID, DOFs, ...
+        if upper.startswith('SPC') and not upper.startswith('SPCADD'):
+            spc_fields = stripped.split()
+            if len(spc_fields) >= 4:
+                try:
+                    node = int(spc_fields[2])
+                    if node not in info['spc_nodes']:
+                        info['spc_nodes'].append(node)
+                    info['spc_dofs'] = spc_fields[3]
+                except (ValueError, IndexError):
+                    pass
+
+    return info
+
+
+# ---------------------------------------------------------------------------
+# Modal Effective Mass Fraction Parser
+# ---------------------------------------------------------------------------
+def _parse_memf(f06_path):
+    """Parse MODAL EFFECTIVE MASS FRACTION tables from the F06 file.
+
+    Returns a dict with keys:
+        'modes': list of dicts, each with mode_no, freq, T1, T2, T3, R1, R2, R3
+        'totals': dict with T1..R3 total fractions (from TOTAL EFFECTIVE MASS FRACTION)
+    Fractions are the per-mode values (not cumulative sums).
+    Returns None if no MEMF table is found.
+    """
+    try:
+        with open(f06_path, 'r', errors='ignore') as f:
+            content = f.read()
+    except Exception:
+        return None
+
+    # Parse per-mode translational fractions
+    trans = {}  # mode_no -> {freq, T1, T2, T3}
+    rot = {}    # mode_no -> {R1, R2, R3}
+
+    # Translational block
+    t_match = re.search(
+        r'MODAL EFFECTIVE MASS FRACTION\s*\n\s*\(FOR TRANSLATIONAL DEGREES OF FREEDOM\)'
+        r'(.*?)(?=\x0c|1\s+\S.*?PAGE|\Z)',
+        content, re.DOTALL
+    )
+    if t_match:
+        for line in t_match.group(1).split('\n'):
+            parts = line.split()
+            if len(parts) >= 8:
+                try:
+                    mode_no = int(parts[0])
+                    freq = float(parts[1])
+                    t1_frac = float(parts[2])
+                    t2_frac = float(parts[4])
+                    t3_frac = float(parts[6])
+                    trans[mode_no] = {'freq': freq, 'T1': t1_frac, 'T2': t2_frac, 'T3': t3_frac}
+                except (ValueError, IndexError):
+                    pass
+
+    # Rotational block
+    r_match = re.search(
+        r'MODAL EFFECTIVE MASS FRACTION\s*\n\s*\(FOR ROTATIONAL DEGREES OF FREEDOM\)'
+        r'(.*?)(?=\x0c|1\s+\S.*?PAGE|\Z)',
+        content, re.DOTALL
+    )
+    if r_match:
+        for line in r_match.group(1).split('\n'):
+            parts = line.split()
+            if len(parts) >= 8:
+                try:
+                    mode_no = int(parts[0])
+                    r1_frac = float(parts[2])
+                    r2_frac = float(parts[4])
+                    r3_frac = float(parts[6])
+                    rot[mode_no] = {'R1': r1_frac, 'R2': r2_frac, 'R3': r3_frac}
+                except (ValueError, IndexError):
+                    pass
+
+    if not trans:
+        return None
+
+    # Combine into mode list
+    modes = []
+    for mode_no in sorted(trans.keys()):
+        t = trans[mode_no]
+        r = rot.get(mode_no, {'R1': None, 'R2': None, 'R3': None})
+        modes.append({
+            'mode_no': mode_no,
+            'freq': t['freq'],
+            'T1': t['T1'], 'T2': t['T2'], 'T3': t['T3'],
+            'R1': r['R1'], 'R2': r['R2'], 'R3': r['R3'],
+        })
+
+    # Parse total effective mass fraction
+    totals = {}
+    tot_match = re.search(
+        r'TOTAL EFFECTIVE MASS FRACTION.*?'
+        r'T1\s+T2\s+T3\s+R1\s+R2\s+R3\s*\n\s*([\d\.\-E\+\s]+)',
+        content, re.DOTALL | re.IGNORECASE
+    )
+    if tot_match:
+        vals = tot_match.group(1).split()
+        for i, dof in enumerate(['T1', 'T2', 'T3', 'R1', 'R2', 'R3']):
+            if i < len(vals):
+                try:
+                    totals[dof] = float(vals[i])
+                except ValueError:
+                    pass
+
+    return {'modes': modes, 'totals': totals}
+
+
+def _add_memf_section(doc, f06_path):
+    """Add a Modal Effective Mass Fraction table to the DOCX.
+
+    This is code-generated (parsed directly from F06), not AI.
+    Highlights modes with >5% mass fraction in any translational DOF.
+    """
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import nsdecls
+    from docx.oxml import parse_xml
+
+    memf = _parse_memf(f06_path)
+    if not memf or not memf['modes']:
+        return
+
+    doc.add_heading("Modal Effective Mass Fraction", level=2)
+    note = doc.add_paragraph()
+    n_run = note.add_run(
+        "Parsed directly from the F06 eigenvalue output — not AI-generated. "
+        "Highlighted rows have >5% mass participation in at least one "
+        "translational DOF."
+    )
+    n_run.font.size = Pt(10)
+    n_run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+    n_run.italic = True
+    doc.add_paragraph()
+
+    # Build table: Mode | Freq (Hz) | T1 | T2 | T3 | R1 | R2 | R3
+    headers = ['Mode', 'Freq (Hz)', 'T1', 'T2', 'T3', 'R1', 'R2', 'R3']
+    num_rows = len(memf['modes']) + 1  # +1 for header
+    has_totals = bool(memf.get('totals'))
+    if has_totals:
+        num_rows += 1
+
+    tbl = doc.add_table(rows=num_rows, cols=len(headers))
+    tbl.autofit = True
+
+    # Header row
+    for ci, h in enumerate(headers):
+        tbl.rows[0].cells[ci].text = h
+        for p in tbl.rows[0].cells[ci].paragraphs:
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Data rows
+    for ri, mode in enumerate(memf['modes'], start=1):
+        tbl.rows[ri].cells[0].text = str(mode['mode_no'])
+        tbl.rows[ri].cells[1].text = f"{mode['freq']:.1f}"
+        significant = False
+        for ci, dof in enumerate(['T1', 'T2', 'T3', 'R1', 'R2', 'R3'], start=2):
+            val = mode[dof]
+            if val is not None:
+                # Show as percentage
+                pct = val * 100
+                tbl.rows[ri].cells[ci].text = f"{pct:.1f}%" if pct >= 0.1 else "<0.1%"
+                if dof in ('T1', 'T2', 'T3') and val > 0.05:
+                    significant = True
+            else:
+                tbl.rows[ri].cells[ci].text = "—"
+            for p in tbl.rows[ri].cells[ci].paragraphs:
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for p in tbl.rows[ri].cells[0].paragraphs:
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for p in tbl.rows[ri].cells[1].paragraphs:
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        # Highlight significant modes (light gold background)
+        if significant:
+            for cell in tbl.rows[ri].cells:
+                shading = parse_xml(
+                    f'<w:shd {nsdecls("w")} w:fill="FFF3CD" w:val="clear"/>'
+                )
+                cell._tc.get_or_add_tcPr().append(shading)
+
+    # Totals row
+    if has_totals:
+        tot_row = tbl.rows[-1]
+        tot_row.cells[0].text = ""
+        tot_row.cells[1].text = "TOTAL"
+        for p in tot_row.cells[1].paragraphs:
+            for run in p.runs:
+                run.font.bold = True
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for ci, dof in enumerate(['T1', 'T2', 'T3', 'R1', 'R2', 'R3'], start=2):
+            val = memf['totals'].get(dof)
+            if val is not None:
+                pct = val * 100
+                tot_row.cells[ci].text = f"{pct:.1f}%"
+            else:
+                tot_row.cells[ci].text = "—"
+            for p in tot_row.cells[ci].paragraphs:
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                for run in p.runs:
+                    run.font.bold = True
+
+    _style_table(tbl, doc)
+    doc.add_paragraph()
+
+
+# ---------------------------------------------------------------------------
+# Pipeline Context Builder (dynamic, FEM-agnostic)
+# ---------------------------------------------------------------------------
+_SOL_DESCRIPTIONS = {
+    101: ('Static Analysis', 'static displacement and stress'),
+    103: ('Normal Modes / Modal Analysis', 'natural frequencies and mode shapes'),
+    105: ('Buckling Analysis', 'buckling eigenvalues and mode shapes'),
+    106: ('Nonlinear Static', 'nonlinear static response'),
+    108: ('Direct Frequency Response', 'frequency response functions'),
+    109: ('Direct Transient Response', 'time-domain transient response'),
+    111: ('Modal Frequency Response / Random Vibration', 'frequency response and PSD output'),
+    112: ('Modal Transient Response', 'transient response via modal superposition'),
+    129: ('Nonlinear Transient', 'nonlinear time-domain response'),
+    144: ('Static Aeroelastic', 'aeroelastic trim analysis'),
+    145: ('Flutter / Aeroelastic', 'flutter boundaries'),
+    146: ('Dynamic Aeroelastic', 'aeroelastic frequency response'),
+    200: ('Design Optimization', 'optimized design variables'),
+    400: ('Nonlinear (NLSOL)', 'nonlinear implicit analysis'),
+}
+
+
+def _build_pipeline_context(info, f06_filenames=""):
+    """Build a Pipeline Context section dynamically from parsed model data.
+
+    Returns a dict with keys: 'analyzes', 'why', 'workflow_bullets', 'varies'.
+    Each value is a string ready for rendering. All text is derived from
+    the actual model content — nothing is hardcoded to a specific FEM.
+    """
+    # --- What this report analyzes ---
+    # Build element summary string
+    elem = info.get('elements', {})
+    if elem:
+        elem_parts = []
+        for etype, count in sorted(elem.items()):
+            elem_parts.append(f"{count} {etype}")
+        elem_summary = ", ".join(elem_parts)
+    else:
+        elem_summary = "element types not determined from input files"
+
+    # Build SOL summary
+    sols = info.get('sol_sequences', [])
+    if sols:
+        sol_parts = []
+        for s in sols:
+            desc = _SOL_DESCRIPTIONS.get(s, (f'SOL {s}', 'analysis'))[0]
+            sol_parts.append(f"SOL {s} ({desc})")
+        sol_summary = " and ".join(sol_parts)
+    else:
+        sol_summary = "solution sequence not identified from input files"
+
+    # Input files
+    input_files = info.get('input_files', [])
+    include_files = info.get('include_files', [])
+    dat_files = [f for f in input_files if f.lower().endswith('.dat')]
+    blk_files = [f for f in input_files if f.lower().endswith('.blk')]
+    all_input_names = dat_files + blk_files
+
+    if all_input_names:
+        file_desc = ", ".join(f"`{f}`" for f in all_input_names)
+        if include_files:
+            file_desc += " (includes: " + ", ".join(f"`{f}`" for f in include_files) + ")"
+    else:
+        file_desc = "input files in the run folder"
+
+    analyzes = (
+        f"A Nastran FEM defined by {file_desc}, comprising {elem_summary}, "
+        f"solved under {sol_summary}."
+    )
+
+    # --- Why it exists ---
+    cbush_count = len(info.get('cbush', []))
+    has_beam = bool(info.get('beam', {}))
+    plate_types = [e for e in elem if e in ('CQUAD4', 'CTRIA3', 'CSHEAR')]
+    plate_count = sum(elem.get(e, 0) for e in plate_types)
+    solid_types = [e for e in elem if e in ('CHEXA', 'CTETRA', 'CPENTA')]
+    solid_count = sum(elem.get(e, 0) for e in solid_types)
+
+    # Determine what the baseline characterizes
+    if cbush_count > 0:
+        baseline_desc = (
+            f"To establish the baseline structural fingerprint — natural frequencies, "
+            f"mode shapes, and dynamic response — of the assembly with {cbush_count} "
+            f"CBUSH bolted joints in their nominal (fully torqued) configuration. "
+            f"This baseline is the control case against which degraded-stiffness "
+            f"permutations are measured."
+        )
+    elif plate_count > 0:
+        baseline_desc = (
+            f"To establish the baseline structural fingerprint — natural frequencies, "
+            f"mode shapes, and dynamic response — of the plate/shell structure "
+            f"({plate_count} elements) in its nominal configuration. This baseline "
+            f"serves as the control case for downstream parametric studies."
+        )
+    elif solid_count > 0:
+        baseline_desc = (
+            f"To establish the baseline structural fingerprint of the solid element "
+            f"model ({solid_count} elements) in its nominal configuration, serving "
+            f"as the reference for downstream parametric studies."
+        )
+    else:
+        baseline_desc = (
+            "To establish the baseline structural fingerprint — frequencies, mode "
+            "shapes, and response characteristics — in the nominal configuration. "
+            "This baseline serves as the control case for downstream parametric studies."
+        )
+
+    # --- Where it fits (workflow bullets) ---
+    # These are pipeline-level facts, adapted to what element types exist
+    if cbush_count > 0:
+        wf1_detail = "generates the structural input deck and CBUSH stiffness definitions"
+        wf3_detail = "iterates CBUSH stiffness permutations, each producing its own analysis results"
+        wf4_detail = "ingests all iteration results to classify bolt looseness signatures"
+    elif plate_count > 0:
+        wf1_detail = "generates the structural input deck and property definitions"
+        wf3_detail = "iterates property permutations (thickness, material), each producing its own analysis results"
+        wf4_detail = "ingests all iteration results to classify structural condition"
+    else:
+        wf1_detail = "generates the structural input deck and property definitions"
+        wf3_detail = "iterates design variable permutations, each producing its own analysis results"
+        wf4_detail = "ingests all iteration results for pattern classification"
+
+    workflow_bullets = [
+        f"**Workflow 1 (Baseline)** — {wf1_detail}",
+        f"**Workflow 2 (FEM Analysis)** — runs Nastran and produces this report  \\u2190 *you are here*",
+        f"**Workflow 3 (HEEDS Sweep)** — {wf3_detail}",
+        f"**Workflow 4 (ML Pipeline)** — {wf4_detail}",
+    ]
+
+    # --- What varies downstream ---
+    if cbush_count > 0:
+        varies = (
+            f"The CBUSH K1\u2013K6 values shown in the stiffness table represent the "
+            f"initial state. HEEDS will systematically perturb these values — isolating "
+            f"individual joints and combinations — to map their influence on "
+            f"displacement, acceleration, and energy distribution."
+        )
+    elif plate_count > 0:
+        varies = (
+            "Property values (thickness, material parameters) shown above represent "
+            "the initial state. HEEDS will systematically perturb these — isolating "
+            "individual elements and regions — to map their influence on the "
+            "structural response."
+        )
+    else:
+        varies = (
+            "The design variables defined in the HEEDS study configuration will be "
+            "systematically perturbed from the nominal values shown above to map "
+            "their influence on the structural response."
+        )
+
+    return {
+        'analyzes': analyzes,
+        'why': baseline_desc,
+        'workflow_bullets': workflow_bullets,
+        'varies': varies,
+    }
+
+
+def _add_pipeline_context_section(doc, info, f06_filenames=""):
+    """Render the Pipeline Context section into the DOCX document."""
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    ctx = _build_pipeline_context(info, f06_filenames)
+
+    doc.add_heading("Pipeline Context", level=1)
+    note = doc.add_paragraph()
+    n_run = note.add_run(
+        "This section is auto-generated from the model input files to situate "
+        "the report within the broader analysis pipeline."
+    )
+    n_run.font.size = Pt(10)
+    n_run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+    n_run.italic = True
+    doc.add_paragraph()
+
+    # What this report analyzes
+    doc.add_heading("What this report analyzes", level=2)
+    p = doc.add_paragraph()
+    _add_formatted_runs(p, ctx['analyzes'])
+
+    # Why it exists
+    doc.add_heading("Why it exists", level=2)
+    p = doc.add_paragraph()
+    _add_formatted_runs(p, ctx['why'])
+
+    # Where it fits in the super workflow
+    doc.add_heading("Where it fits in the super workflow", level=2)
+    for bullet_text in ctx['workflow_bullets']:
+        p = doc.add_paragraph(style='List Bullet')
+        _add_formatted_runs(p, bullet_text)
+
+    # What varies downstream
+    doc.add_heading("What varies downstream", level=2)
+    p = doc.add_paragraph()
+    _add_formatted_runs(p, ctx['varies'])
+
+    doc.add_page_break()
+
+
+def _style_table(table, doc):
+    """Apply professional formatting to a DOCX table — borders, shading, keep-together."""
+    from docx.shared import Pt, RGBColor, Inches
+    from docx.oxml.ns import qn, nsdecls
+    from docx.oxml import parse_xml
+
+    # Header row shading (dark blue)
+    for cell in table.rows[0].cells:
+        shading = parse_xml(f'<w:shd {nsdecls("w")} w:fill="1F3864" w:val="clear"/>')
+        cell._tc.get_or_add_tcPr().append(shading)
+        for p in cell.paragraphs:
+            for run in p.runs:
+                run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+                run.font.bold = True
+                run.font.size = Pt(9)
+
+    # Alternating row shading and font sizing
+    for i, row in enumerate(table.rows):
+        for cell in row.cells:
+            for p in cell.paragraphs:
+                p.paragraph_format.space_before = Pt(2)
+                p.paragraph_format.space_after = Pt(2)
+                for run in p.runs:
+                    if i > 0:
+                        run.font.size = Pt(9)
+            if i > 0 and i % 2 == 0:
+                shading = parse_xml(f'<w:shd {nsdecls("w")} w:fill="E8EDF4" w:val="clear"/>')
+                cell._tc.get_or_add_tcPr().append(shading)
+
+        # Keep rows together (prevent page break within table)
+        for cell in row.cells:
+            for p in cell.paragraphs:
+                pPr = p._p.get_or_add_pPr()
+                keep = parse_xml(f'<w:keepNext {nsdecls("w")}/>')
+                pPr.append(keep)
+
+    # Table borders
+    tbl = table._tbl
+    tblPr = tbl.tblPr if tbl.tblPr is not None else parse_xml(f'<w:tblPr {nsdecls("w")}/>')
+    borders = parse_xml(
+        f'<w:tblBorders {nsdecls("w")}>'
+        '  <w:top w:val="single" w:sz="6" w:space="0" w:color="1F3864"/>'
+        '  <w:left w:val="single" w:sz="6" w:space="0" w:color="1F3864"/>'
+        '  <w:bottom w:val="single" w:sz="6" w:space="0" w:color="1F3864"/>'
+        '  <w:right w:val="single" w:sz="6" w:space="0" w:color="1F3864"/>'
+        '  <w:insideH w:val="single" w:sz="4" w:space="0" w:color="B0BEC5"/>'
+        '  <w:insideV w:val="single" w:sz="4" w:space="0" w:color="B0BEC5"/>'
+        '</w:tblBorders>'
+    )
+    tblPr.append(borders)
+
+
+def _add_model_properties_section(doc, run_folder, skip_llm=False):
+    """Add code-generated material, beam, and CBUSH stiffness tables to DOCX."""
+    from docx.shared import Inches, Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    info = _parse_model_inputs(run_folder)
+
+    doc.add_heading("Model Properties", level=1)
+    note = doc.add_paragraph()
+    n_run = note.add_run(
+        "The following properties are parsed directly from the Nastran input "
+        "files (DAT + BLK) — not AI-generated."
+    )
+    n_run.font.size = Pt(10)
+    n_run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+    n_run.italic = True
+    doc.add_paragraph()
+
+    # ── Material Properties Table ──
+    mat = info.get('material', {})
+    if mat:
+        doc.add_heading("Material Properties", level=2)
+        mat_rows = []
+        if mat.get('name'):
+            mat_rows.append(("Material", mat['name']))
+        if mat.get('id'):
+            mat_rows.append(("MAT1 ID", str(mat['id'])))
+        if mat.get('E') is not None:
+            mat_rows.append(("Young's Modulus (E)", f"{_format_eng(mat['E'])} psi"))
+        if mat.get('G') is not None:
+            mat_rows.append(("Shear Modulus (G)", f"{_format_eng(mat['G'])} psi"))
+        if mat.get('nu') is not None:
+            mat_rows.append(("Poisson's Ratio (ν)", f"{mat['nu']}"))
+        if mat.get('rho') is not None:
+            mat_rows.append(("Density (ρ)", f"{mat['rho']:.4g} (mass-density)"))
+        if mat.get('alpha') is not None:
+            mat_rows.append(("Thermal Expansion (α)", f"{mat['alpha']:.4g} /°F"))
+
+        table = doc.add_table(rows=len(mat_rows), cols=2)
+        table.autofit = True
+        for i, (prop, val) in enumerate(mat_rows):
+            table.rows[i].cells[0].text = prop
+            table.rows[i].cells[1].text = val
+            for p in table.rows[i].cells[0].paragraphs:
+                for run in p.runs:
+                    run.bold = True
+                    run.font.size = Pt(10)
+            for p in table.rows[i].cells[1].paragraphs:
+                for run in p.runs:
+                    run.font.size = Pt(10)
+        _style_table(table, doc)
+        doc.add_paragraph()
+
+    # ── Beam Cross-Section Table ──
+    beam = info.get('beam', {})
+    if beam:
+        doc.add_heading("Beam Cross-Section", level=2)
+        beam_rows = [
+            ("Property ID", str(beam.get('pid', ''))),
+            ("Material ID", str(beam.get('mid', ''))),
+            ("Section Type", str(beam.get('type', 'Unknown'))),
+        ]
+        dims = beam.get('dims', [])
+        if dims:
+            if beam.get('type', '').upper() == 'BAR' and len(dims) >= 2:
+                beam_rows.append(("Width", f"{dims[0]}"))
+                beam_rows.append(("Height", f"{dims[1]}"))
+                area = dims[0] * dims[1]
+                beam_rows.append(("Cross-Section Area", f"{area:.2f} (unit²)"))
+            else:
+                for j, d in enumerate(dims):
+                    beam_rows.append((f"Dimension {j+1}", f"{d}"))
+
+        table = doc.add_table(rows=len(beam_rows), cols=2)
+        table.autofit = True
+        for i, (prop, val) in enumerate(beam_rows):
+            table.rows[i].cells[0].text = prop
+            table.rows[i].cells[1].text = val
+            for p in table.rows[i].cells[0].paragraphs:
+                for run in p.runs:
+                    run.bold = True
+                    run.font.size = Pt(10)
+            for p in table.rows[i].cells[1].paragraphs:
+                for run in p.runs:
+                    run.font.size = Pt(10)
+        _style_table(table, doc)
+        doc.add_paragraph()
+
+    # ── CBUSH Bolt Stiffness Table ──
+    cbush_list = info.get('cbush', [])
+    if cbush_list:
+        doc.add_heading("CBUSH Bolt Stiffness", level=2)
+
+        headers = ["Bolt ID", "K1 (Trans)", "K2 (Trans)", "K3 (Trans)",
+                    "K4 (Rot)", "K5 (Rot)", "K6 (Rot)"]
+        table = doc.add_table(rows=1 + len(cbush_list), cols=7)
+        table.autofit = True
+
+        # Header row
+        for j, h in enumerate(headers):
+            table.rows[0].cells[j].text = h
+
+        # Data rows
+        for i, bolt in enumerate(cbush_list):
+            row = table.rows[i + 1]
+            row.cells[0].text = str(bolt['id'])
+            for j, key in enumerate(['K1', 'K2', 'K3', 'K4', 'K5', 'K6']):
+                row.cells[j + 1].text = _format_eng(bolt.get(key))
+
+            # Center-align all cells
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    for run in p.runs:
+                        run.font.size = Pt(9)
+
+        # Center header too
+        for cell in table.rows[0].cells:
+            for p in cell.paragraphs:
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        _style_table(table, doc)
+        doc.add_paragraph()
+
+        # ── LLM Stiffness Summary ──
+        if not skip_llm:
+            try:
+                import anthropic
+                client = anthropic.Anthropic()
+
+                # Build a text summary of the stiffness data for the prompt
+                stiff_lines = []
+                for bolt in cbush_list:
+                    vals = ", ".join(
+                        f"{k}={_format_eng(bolt.get(k))}"
+                        for k in ['K1', 'K2', 'K3', 'K4', 'K5', 'K6']
+                    )
+                    stiff_lines.append(f"Bolt {bolt['id']}: {vals}")
+                stiff_text = "\n".join(stiff_lines)
+
+                summary_prompt = (
+                    "You are a structural dynamics engineer reviewing a Nastran FEM model. "
+                    "Below are the CBUSH spring element stiffness values for each bolt in the model. "
+                    "K1-K3 are translational stiffnesses, K4-K6 are rotational stiffnesses.\n\n"
+                    f"{stiff_text}\n\n"
+                    "Write a brief (3-5 sentence) summary explaining:\n"
+                    "- What these stiffness values represent physically in the bolted joint\n"
+                    "- Whether the values are uniform or vary across bolts\n"
+                    "- What the relative magnitudes of translational vs rotational stiffness imply about the joint behavior\n"
+                    "Do NOT use bullet points. Write in paragraph form."
+                )
+
+                print("Generating CBUSH stiffness summary...")
+                resp = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=512,
+                    temperature=0,
+                    messages=[{"role": "user", "content": summary_prompt}]
+                )
+                summary_text = resp.content[0].text
+
+                # Add LLFEM-tagged summary paragraph
+                summary_para = doc.add_paragraph()
+                tag_run = summary_para.add_run("[LLFEM] ")
+                tag_run.bold = True
+                tag_run.font.size = Pt(9)
+                tag_run.font.color.rgb = RGBColor(0x25, 0x63, 0xEB)
+                body_run = summary_para.add_run(summary_text)
+                body_run.font.size = Pt(10)
+                body_run.italic = True
+                doc.add_paragraph()
+
+            except Exception as e:
+                print(f"WARNING: Could not generate stiffness summary: {e}")
+
+    doc.add_page_break()
+
+
+# ---------------------------------------------------------------------------
 # DOCX Report Writer
 # ---------------------------------------------------------------------------
-def write_docx_report(output_path, report_text, f06_filename, images, run_folder):
+def write_docx_report(output_path, report_text, f06_filename, images, run_folder, skip_llm=False):
     """Write LLFEM-branded simulation report as DOCX with inline images."""
     try:
         from docx import Document
@@ -315,11 +1134,23 @@ def write_docx_report(output_path, report_text, f06_filename, images, run_folder
             caption = IMAGE_CAPTIONS.get(img_name, f"Figure: {img_name}")
 
             try:
+                # Determine image dimensions to fit on one page
+                from PIL import Image as PILImage
+                with PILImage.open(img_path) as pil_img:
+                    img_w, img_h = pil_img.size
+                aspect = img_h / img_w if img_w > 0 else 1.0
+
                 # Use wider width for landscape-oriented charts
                 if 'bar_chart' in img_name or 'psd_response' in img_name:
                     width = Inches(6.5)
                 else:
                     width = Inches(4.5)
+
+                # Cap height at 7.5 inches so image + caption fit on one page
+                max_height = Inches(7.5)
+                scaled_height = Inches(width / Inches(1) * aspect)
+                if scaled_height > max_height:
+                    width = Inches(max_height / Inches(1) / aspect)
 
                 doc.add_picture(img_path, width=width)
                 last_p = doc.paragraphs[-1]
@@ -339,12 +1170,24 @@ def write_docx_report(output_path, report_text, f06_filename, images, run_folder
 
         doc.add_page_break()
 
+    # ── Model Properties Section (code-generated, not AI) ──
+    model_info = _parse_model_inputs(run_folder)
+    _add_model_properties_section(doc, run_folder, skip_llm=skip_llm)
+
+    # ── Pipeline Context Section (dynamic, FEM-agnostic) ──
+    _add_pipeline_context_section(doc, model_info, f06_filename)
+
+    # ── Modal Effective Mass Fraction (code-generated from F06) ──
+    for f06_path in find_f06_files(run_folder):
+        _add_memf_section(doc, f06_path)
+        break  # use first F06 with modal data
+
     # ── LLFEM Analysis Section ──
     llfem_header = doc.add_heading(f"{LLFEM_TAG} Analysis", level=1)
 
     # LLFEM badge before analysis
     badge = doc.add_paragraph()
-    badge_run = badge.add_run(f"[ {LLFEM_TAG} — The following analysis was generated by AI ]")
+    badge_run = badge.add_run(f"[ {LLFEM_TAG} — Summary generated by LLM solely from this model's FEM data ]")
     badge_run.bold = True
     badge_run.font.size = Pt(10)
     badge_run.font.color.rgb = RGBColor(0x25, 0x63, 0xEB)
@@ -355,13 +1198,42 @@ def write_docx_report(output_path, report_text, f06_filename, images, run_folder
     # ── Parse LLM markdown into DOCX paragraphs ──
     lines = report_text.split('\n')
     in_list = False
+    i = 0
 
-    for line in lines:
-        stripped = line.strip()
+    while i < len(lines):
+        stripped = lines[i].strip()
 
         if not stripped:
             if in_list:
                 in_list = False
+            i += 1
+            continue
+
+        # Markdown table: collect all | ... | lines into a block
+        if stripped.startswith('|') and '|' in stripped[1:]:
+            table_lines = []
+            while i < len(lines) and lines[i].strip().startswith('|'):
+                row_text = lines[i].strip()
+                # Skip separator rows like |---|---|
+                if not re.match(r'^\|[\s\-:|]+\|$', row_text):
+                    cells = [c.strip() for c in row_text.strip('|').split('|')]
+                    table_lines.append(cells)
+                i += 1
+
+            if table_lines:
+                num_cols = max(len(row) for row in table_lines)
+                tbl = doc.add_table(rows=len(table_lines), cols=num_cols)
+                tbl.autofit = True
+                for ri, row_cells in enumerate(table_lines):
+                    for ci, cell_text in enumerate(row_cells):
+                        if ci < num_cols:
+                            tbl.rows[ri].cells[ci].text = cell_text.replace('**', '')
+                            for p in tbl.rows[ri].cells[ci].paragraphs:
+                                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                for run in p.runs:
+                                    run.font.size = Pt(9)
+                _style_table(tbl, doc)
+                doc.add_paragraph()
             continue
 
         # Section headers
@@ -412,6 +1284,8 @@ def write_docx_report(output_path, report_text, f06_filename, images, run_folder
         else:
             p = doc.add_paragraph()
             _add_formatted_runs(p, stripped)
+
+        i += 1
 
     # ── Footer with LLFEM stamp ──
     doc.add_paragraph()
@@ -554,13 +1428,29 @@ def main():
 
         combined_content = '\n\n'.join(all_content)
         combined_filename = ', '.join(os.path.basename(f) for f in f06_files)
-        report_text = generate_report(combined_content, combined_filename)
+
+        # Read model input files (DAT + Bush.blk) for material/property info
+        model_input_parts = []
+        for ext_pattern in ['*.dat', '*.DAT', '*.blk', '*.BLK']:
+            for inp_path in globmod.glob(os.path.join(run_folder, ext_pattern)):
+                inp_name = os.path.basename(inp_path)
+                try:
+                    with open(inp_path, 'r', errors='ignore') as f:
+                        inp_content = f.read()
+                    model_input_parts.append(f"=== {inp_name} ===\n{inp_content}")
+                    print(f"  Reading input: {inp_name}")
+                except Exception:
+                    pass
+        model_input_content = '\n\n'.join(model_input_parts)
+
+        report_text = generate_report(combined_content, combined_filename,
+                                       model_input_content)
 
     # Write DOCX report
     if use_docx:
         output_path = args.output or os.path.join(run_folder, 'simulation_report.docx')
         success = write_docx_report(output_path, report_text, combined_filename,
-                                     images, run_folder)
+                                     images, run_folder, skip_llm=args.skip_llm)
         if not success:
             output_path = os.path.join(run_folder, 'simulation_report.md')
             write_md_report(output_path, report_text, combined_filename)
