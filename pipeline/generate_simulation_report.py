@@ -245,7 +245,7 @@ def _parse_nastran_field(field_str):
 
 
 def _format_eng(val):
-    """Format a float in 'e' notation for display (e.g. 1.20e6)."""
+    """Format a float in compact 'e' notation for display (e.g. 1e12, 2.5e6)."""
     if val is None:
         return "—"
     abs_val = abs(val)
@@ -254,7 +254,9 @@ def _format_eng(val):
     import math
     exp = int(math.floor(math.log10(abs_val)))
     coeff = val / 10**exp
-    return f"{coeff:.2f}e{exp}"
+    if coeff == int(coeff):
+        return f"{int(coeff)}e{exp}"
+    return f"{coeff:.2f}".rstrip('0').rstrip('.') + f"e{exp}"
 
 
 def _parse_model_inputs(run_folder):
@@ -737,7 +739,7 @@ def _build_pipeline_context(info, f06_filenames=""):
 
     workflow_bullets = [
         f"**Workflow 1 (Baseline)** — {wf1_detail}",
-        f"**Workflow 2 (FEM Analysis)** — runs Nastran and produces this report  \\u2190 *you are here*",
+        f"**Workflow 2 (FEM Analysis)** — runs Nastran and produces this report  -> *you are here*",
         f"**Workflow 3 (HEEDS Sweep)** — {wf3_detail}",
         f"**Workflow 4 (ML Pipeline)** — {wf4_detail}",
     ]
@@ -745,7 +747,7 @@ def _build_pipeline_context(info, f06_filenames=""):
     # --- What varies downstream ---
     if cbush_count > 0:
         varies = (
-            f"The CBUSH K1\u2013K6 values shown in the stiffness table represent the "
+            f"The CBUSH K1-K6 values shown in the stiffness table represent the "
             f"initial state. HEEDS will systematically perturb these values — isolating "
             f"individual joints and combinations — to map their influence on "
             f"displacement, acceleration, and energy distribution."
@@ -812,6 +814,93 @@ def _add_pipeline_context_section(doc, info, f06_filenames=""):
     _add_formatted_runs(p, ctx['varies'])
 
     doc.add_page_break()
+
+
+def _add_run_summary_section(doc, run_folder, images, f06_filename):
+    """Add a Pipeline Run Summary page right after the title page."""
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    doc.add_heading("Pipeline Run Summary", level=1)
+
+    # Run folder
+    p = doc.add_paragraph()
+    r = p.add_run("Run Folder: ")
+    r.bold = True
+    r.font.size = Pt(11)
+    p.add_run(run_folder or "N/A").font.size = Pt(11)
+
+    # Collect file inventory from run folder
+    nastran_exts = {'.dat', '.f06', '.f04', '.op2', '.log', '.dball', '.master', '.mon2'}
+    report_exts = {'.md': 'Markdown', '.docx': 'Word DOCX', '.pdf': 'PDF'}
+    nastran_files = []
+    report_files = []
+
+    if run_folder and os.path.isdir(run_folder):
+        for fname in sorted(os.listdir(run_folder)):
+            fpath = os.path.join(run_folder, fname)
+            if not os.path.isfile(fpath):
+                continue
+            ext = os.path.splitext(fname)[1].lower()
+            size = os.path.getsize(fpath)
+            if ext in nastran_exts:
+                nastran_files.append((fname, size))
+            elif fname.startswith('simulation_report') and ext in report_exts:
+                report_files.append((fname, size, report_exts[ext]))
+
+    # Nastran outputs
+    doc.add_heading("Nastran Outputs", level=2)
+    if nastran_files:
+        exts_str = ", ".join(sorted(set(os.path.splitext(f)[1] for f, _ in nastran_files)))
+        p = doc.add_paragraph()
+        p.add_run(f"{len(nastran_files)} files ({exts_str})").font.size = Pt(11)
+        for fname, size in nastran_files:
+            bp = doc.add_paragraph(style='List Bullet')
+            bp.add_run(f"{fname}  ({_human_size(size)})").font.size = Pt(10)
+    else:
+        doc.add_paragraph("No Nastran output files found.")
+
+    # Reports
+    doc.add_heading("Generated Reports", level=2)
+    if report_files:
+        for fname, size, fmt in report_files:
+            bp = doc.add_paragraph(style='List Bullet')
+            bp.add_run(f"{fname}  ({_human_size(size)}) - {fmt}").font.size = Pt(10)
+    else:
+        doc.add_paragraph("No report files found.")
+
+    # FEM screenshots
+    doc.add_heading("FEM Screenshots", level=2)
+    if images:
+        p = doc.add_paragraph()
+        p.add_run(f"{len(images)} images captured:").font.size = Pt(11)
+        for img_path in images:
+            bp = doc.add_paragraph(style='List Bullet')
+            bp.add_run(os.path.basename(img_path)).font.size = Pt(10)
+    else:
+        doc.add_paragraph("No FEM screenshots available.")
+
+    # Pipeline steps
+    doc.add_heading("End-to-End Pipeline Steps", level=2)
+    steps = [
+        "Nastran SOL 103 analysis (modal extraction)",
+        "F06 parsing and data extraction",
+        "Femap/pyNastran screenshot capture",
+        "LLM simulation report with MEMF table",
+        "DOCX + PDF report generation",
+    ]
+    for step in steps:
+        bp = doc.add_paragraph(style='List Bullet')
+        bp.add_run(step).font.size = Pt(11)
+
+
+def _human_size(nbytes):
+    """Return a human-readable file size string."""
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if abs(nbytes) < 1024:
+            return f"{nbytes:.0f} {unit}" if unit == 'B' else f"{nbytes:.1f} {unit}"
+        nbytes /= 1024
+    return f"{nbytes:.1f} TB"
 
 
 def _style_table(table, doc):
@@ -1125,6 +1214,10 @@ def write_docx_report(output_path, report_text, f06_filename, images, run_folder
     d_run2.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
     d_run2.italic = True
 
+    doc.add_page_break()
+
+    # ── Pipeline Run Summary (right after title page) ──
+    _add_run_summary_section(doc, run_folder, images, f06_filename)
     doc.add_page_break()
 
     # ── FEM Visualization Gallery (before LLM analysis) ──
