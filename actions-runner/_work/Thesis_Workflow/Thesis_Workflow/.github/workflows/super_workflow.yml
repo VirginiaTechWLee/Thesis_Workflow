@@ -1,0 +1,949 @@
+name: Super Workflow - Config-Driven Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeout_minutes:
+        description: 'Timeout in minutes'
+        required: true
+        default: '120'
+        type: string
+      folder_mode:
+        description: 'How to handle existing study folders'
+        required: true
+        default: 'overwrite_existing'
+        type: choice
+        options:
+          - overwrite_existing
+          - skip_if_exists
+      llm_reports:
+        description: 'Generate LLM reports at each pipeline stage'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  super-pipeline:
+    runs-on: self-hosted
+    timeout-minutes: 180
+
+    steps:
+      # ================================================================
+      # STAGE 1: CHECKOUT & READ CONFIG
+      # ================================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Read config.yaml and set parameters
+        id: config
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  SUPER WORKFLOW - READING CONFIG"
+          Log "========================================================"
+
+          $configOutput = & "${{ vars.PYTHON_PATH }}" pipeline/read_config.py
+
+          foreach ($line in $configOutput) {
+            if ($line -match '^(\w+)=(.*)$') {
+              $key = $matches[1]
+              $val = $matches[2]
+              Log "  $key = $val"
+              echo "$key=$val" >> $env:GITHUB_OUTPUT
+            }
+          }
+
+          $timeoutMin = [int]"${{ github.event.inputs.timeout_minutes }}"
+          $timeoutSec = $timeoutMin * 60
+          echo "TIMEOUT_SEC=$timeoutSec" >> $env:GITHUB_OUTPUT
+
+          # LLM reports: workflow_dispatch input overrides config
+          $llmInput = "${{ github.event.inputs.llm_reports }}"
+          if ($llmInput -eq "true") {
+            $llmReports = "true"
+          } else {
+            # Fall back to config value
+            $llmConfig = ($configOutput | Where-Object { $_ -match '^LLM_REPORTS=' }) -replace '^LLM_REPORTS=', ''
+            $llmReports = if ($llmConfig -eq "true") { "true" } else { "false" }
+          }
+          echo "LLM_REPORTS=$llmReports" >> $env:GITHUB_OUTPUT
+          Log "  LLM_REPORTS = $llmReports"
+
+          # Set up reports output directory
+          $dbDir = Split-Path ($configOutput | Where-Object { $_ -match '^DB_PATH=' } | ForEach-Object { $_ -replace '^DB_PATH=', '' })
+          $studyName = ($configOutput | Where-Object { $_ -match '^STUDY_NAME=' } | ForEach-Object { $_ -replace '^STUDY_NAME=', '' })
+          $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+          $reportsDir = "$dbDir\pipeline_reports\${studyName}_${timestamp}"
+          echo "REPORTS_DIR=$reportsDir" >> $env:GITHUB_OUTPUT
+          Log "  REPORTS_DIR = $reportsDir"
+
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 2: VALIDATE FEM INPUTS
+      # ================================================================
+      - name: Validate FEM inputs
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  VALIDATING FEM INPUTS"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/validate_fem_inputs.py
+          if ($LASTEXITCODE -ne 0) {
+            Log "ERROR: FEM input validation failed"
+            exit 1
+          }
+
+          # Verify template files exist
+          $templates = @(
+            "templates/${{ steps.config.outputs.STRUCTURAL_MODEL }}",
+            "templates/Recoveries.blk"
+          )
+          foreach ($t in $templates) {
+            if (Test-Path $t) {
+              Log "[PASS] $t"
+            } else {
+              Log "[FAIL] Missing: $t"
+              exit 1
+            }
+          }
+
+          # Check RandomBeamX.dat (case-insensitive)
+          $rand = Get-ChildItem templates -Filter "*randombeamx*" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($rand) {
+            Log "[PASS] $($rand.FullName)"
+          } else {
+            Log "[FAIL] Missing: templates/RandomBeamX.dat"
+            exit 1
+          }
+
+          Log "========================================================"
+
+      # ================================================================
+      # LLM REPORT: Install anthropic (once, conditional)
+      # ================================================================
+      - name: Install anthropic package
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        run: |
+          & "${{ vars.PYTHON_PATH }}" -m pip install anthropic --quiet 2>&1 | Out-Null
+          & "${{ vars.PYTHON_PATH }}" -c "import anthropic; print(f'anthropic {anthropic.__version__} installed')"
+
+      # ================================================================
+      # LLM REPORT 1: Pre-Run FEM Health Check
+      # ================================================================
+      - name: "LLM Report: Pre-Run FEM Health Check"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $stderrFile = "$reportsDir\report1_stderr.log"
+          New-Item -ItemType Directory -Path $reportsDir -Force | Out-Null
+          Log "Generating FEM Health Check report..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type fem_health `
+            --data-file "fem_input/${{ steps.config.outputs.STRUCTURAL_MODEL }}" `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: FEM health report failed (non-fatal)" }
+
+      # ================================================================
+      # STAGE 3: GENERATE PIPELINE FILES
+      # ================================================================
+      - name: Generate FBM_TO_DBALL.bat
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  GENERATING FBM_TO_DBALL.bat"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_bat.py --output FBM_TO_DBALL.bat
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          Log "Contents:"
+          Get-Content FBM_TO_DBALL.bat
+          Log "========================================================"
+
+      - name: Generate baseline Bush.blk (Femap format)
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  GENERATING BASELINE BUSH.BLK (FEMAP FORMAT)"
+          Log "========================================================"
+
+          # Generate to Misc/ (Femap format with comment lines)
+          if (-not (Test-Path Misc)) { mkdir Misc }
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_baseline_bush.py --output Misc/Bush.blk
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          Log ""
+          Log "Contents:"
+          Get-Content Misc/Bush.blk
+          Log "========================================================"
+
+      - name: Generate HEEDS project file
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+
+          Log "========================================================"
+          Log "  GENERATING HEEDS PROJECT: $studyName"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_heeds_project.py --output "heeds/projects/${studyName}.heeds"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          $size = (Get-Item "heeds/projects/${studyName}.heeds").Length
+          Log "File size: $size bytes"
+
+          # Verify PCH VisFile entry
+          $hasPch = Select-String -Path "heeds/projects/${studyName}.heeds" -Pattern "VisFile.*randombeamx\.pch" -Quiet
+          if ($hasPch) {
+            Log "[PASS] PCH VisFile entry present"
+          } else {
+            Log "[WARN] PCH VisFile entry NOT found"
+          }
+          Log "========================================================"
+
+      # ================================================================
+      # LLM REPORT 2: Study Plan Summary
+      # ================================================================
+      - name: "LLM Report: Study Plan Summary"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $stderrFile = "$reportsDir\report2_stderr.log"
+          Log "Generating Study Plan Summary..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type study_plan `
+            --data-file "heeds/projects/${studyName}.heeds" `
+            --config-file "fem_input/config.yaml" `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Study plan report failed (non-fatal)" }
+
+      # ================================================================
+      # STAGE 4: PREPARE HEEDS EXECUTION
+      # ================================================================
+      - name: Kill existing HEEDS processes
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  KILLING EXISTING HEEDS PROCESSES"
+          Log "========================================================"
+
+          $processes = @("heeds", "HEEDSMDO", "nastran", "nastranw")
+          foreach ($proc in $processes) {
+            $running = Get-Process -Name $proc -ErrorAction SilentlyContinue
+            if ($running) {
+              Log "Stopping: $proc (PID: $($running.Id))"
+              Stop-Process -Name $proc -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Start-Sleep -Seconds 3
+
+          $stillRunning = Get-Process | Where-Object { $_.Name -match "heeds|HEEDSMDO|nastran" }
+          if ($stillRunning) {
+            Log "WARNING: Some processes still running"
+          } else {
+            Log "SUCCESS: All HEEDS processes stopped"
+          }
+          Log "========================================================"
+
+      - name: Handle existing study folder
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $mode = "${{ github.event.inputs.folder_mode }}"
+          $studyFolder = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1"
+
+          Log "========================================================"
+          Log "  FOLDER MANAGEMENT"
+          Log "========================================================"
+          Log "Study folder: $studyFolder"
+          Log "Mode: $mode"
+
+          if (Test-Path $studyFolder) {
+            if ($mode -eq "overwrite_existing") {
+              Log "[ACTION] Deleting existing folder..."
+              Remove-Item -Path $studyFolder -Recurse -Force
+              Log "[DONE] Folder deleted"
+            } elseif ($mode -eq "skip_if_exists") {
+              Log "[SKIP] Folder exists - exiting"
+              exit 0
+            }
+          } else {
+            Log "[OK] No existing folder"
+          }
+          Log "========================================================"
+
+      - name: Copy files to HEEDS working directory
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $workDir = "${{ vars.HEEDS_WORKING_DIR }}"
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+
+          Log "========================================================"
+          Log "  COPYING FILES TO HEEDS WORKING DIRECTORY"
+          Log "========================================================"
+          Log "Target: $workDir"
+
+          # Generated .heeds project
+          Copy-Item "heeds/projects/${studyName}.heeds" "$workDir\${studyName}.heeds" -Force
+          Log "[OK] ${studyName}.heeds (generated)"
+
+          # Generated Bush.blk (Femap format)
+          Copy-Item "Misc/Bush.blk" "$workDir\Bush.blk" -Force
+          Log "[OK] Bush.blk (Femap format, generated)"
+
+          # Generated FBM_TO_DBALL.bat
+          Copy-Item "FBM_TO_DBALL.bat" "$workDir\" -Force
+          Log "[OK] FBM_TO_DBALL.bat (generated)"
+
+          # Template FEM files
+          Copy-Item "templates/${{ steps.config.outputs.STRUCTURAL_MODEL }}" "$workDir\" -Force
+          Log "[OK] ${{ steps.config.outputs.STRUCTURAL_MODEL }}"
+
+          Copy-Item "templates/Recoveries.blk" "$workDir\" -Force
+          Log "[OK] Recoveries.blk"
+
+          $randFile = Get-ChildItem templates -Filter "*randombeamx*" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($randFile) {
+            Copy-Item $randFile.FullName "$workDir\$($randFile.Name)" -Force
+            Log "[OK] $($randFile.Name)"
+          }
+
+          # Post-processor script (from existing Scripts/)
+          Copy-Item "Scripts/${{ steps.config.outputs.POSTPROCESSOR }}" "$workDir\" -Force
+          Log "[OK] ${{ steps.config.outputs.POSTPROCESSOR }}"
+
+          # Baseline CSVs for delta calculations
+          if (Test-Path "baseline/acceleration_results.csv") {
+            Copy-Item "baseline/acceleration_results.csv" "$workDir\acceleration_results_baseline.csv" -Force
+            Log "[OK] acceleration_results_baseline.csv"
+          }
+          if (Test-Path "baseline/displacement_results.csv") {
+            Copy-Item "baseline/displacement_results.csv" "$workDir\displacement_results_baseline.csv" -Force
+            Log "[OK] displacement_results_baseline.csv"
+          }
+
+          Log ""
+          Log "Files in working directory:"
+          Get-ChildItem $workDir -File | Select-Object Name, Length | Format-Table
+          Log "========================================================"
+
+      # ================================================================
+      # STAGE 5: RUN HEEDS STUDY
+      # ================================================================
+      - name: Run HEEDS Study
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $heedsFile = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}.heeds"
+          $runScript = "${{ github.workspace }}\run_study_v2.py"
+          $expectedDesigns = [int]"${{ steps.config.outputs.EXPECTED_DESIGNS }}"
+          $timeoutSec = [int]"${{ steps.config.outputs.TIMEOUT_SEC }}"
+
+          Log "========================================================"
+          Log "  STARTING HEEDS STUDY"
+          Log "========================================================"
+          Log "Project: $studyName"
+          Log "HEEDS file: $heedsFile"
+          Log "Expected designs: $expectedDesigns"
+          Log "Timeout: $timeoutSec seconds"
+          Log "========================================================"
+
+          # Verify files
+          if (-not (Test-Path $runScript)) {
+            Log "ERROR: run_study_v2.py not found at $runScript"
+            exit 1
+          }
+          if (-not (Test-Path $heedsFile)) {
+            Log "ERROR: HEEDS file not found at $heedsFile"
+            exit 1
+          }
+
+          # Start HEEDS
+          $heedsExe = "${{ vars.HEEDS_MDO_PATH }}"
+          Log "Executable: $heedsExe"
+          Log "Command: $heedsExe -b -script `"$runScript`" -project `"$heedsFile`""
+
+          $process = Start-Process -FilePath $heedsExe `
+            -ArgumentList "-b", "-script", "`"$runScript`"", "-project", "`"$heedsFile`"" `
+            -PassThru -NoNewWindow -WorkingDirectory "${{ vars.HEEDS_WORKING_DIR }}"
+
+          Log "HEEDS started (PID: $($process.Id))"
+
+          # Wait for study folder
+          $studyFolder = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1"
+          $post0Folder = "$studyFolder\POST_0"
+          $startTime = Get-Date
+          $folderTimeout = 300
+
+          Log ""
+          Log "Waiting for study folder..."
+
+          while (-not (Test-Path $studyFolder)) {
+            $elapsed = ((Get-Date) - $startTime).TotalSeconds
+            if ($elapsed -gt $folderTimeout) {
+              Log "ERROR: Study folder not created after $folderTimeout seconds"
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              exit 1
+            }
+            Log "  Waiting... ($([int]$elapsed)s / ${folderTimeout}s)"
+            Start-Sleep -Seconds 10
+          }
+
+          Log "SUCCESS: Study folder created!"
+
+          # Monitor progress
+          Log ""
+          Log "========================================================"
+          Log "  MONITORING PROGRESS"
+          Log "========================================================"
+
+          $lastCount = 0
+          $stallTime = 0
+          $maxStall = 600
+
+          while ($true) {
+            $elapsed = ((Get-Date) - $startTime).TotalSeconds
+
+            # Count verified designs in POST_0
+            $completed = 0
+            $designFolders = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
+            foreach ($design in $designFolders) {
+              $pchExists = Test-Path "$($design.FullName)\Analysis_1\randombeamx.pch"
+              $csvExists = Test-Path "$($design.FullName)\Analysis_1\acceleration_results.csv"
+              if ($pchExists -and $csvExists) { $completed++ }
+            }
+
+            $totalFolders = ($designFolders | Measure-Object).Count
+            $pct = if ($expectedDesigns -gt 0) { [math]::Round(($completed / $expectedDesigns) * 100, 1) } else { 0 }
+            $barLen = 40
+            $filled = [math]::Min($barLen, [math]::Floor($barLen * $completed / [math]::Max($expectedDesigns, 1)))
+            $bar = ("#" * $filled) + ("-" * ($barLen - $filled))
+
+            # Check if HEEDS has signaled completion
+            $studyLog = "$studyFolder\Study_1.log"
+            $heedsFinished = $false
+            if (Test-Path $studyLog) {
+              $heedsFinished = Select-String -Path $studyLog -Pattern "End of HEEDS run" -Quiet -ErrorAction SilentlyContinue
+            }
+
+            $heedsTag = if ($heedsFinished) { " [HEEDS DONE]" } else { "" }
+            Log "[$bar] $completed/$expectedDesigns verified ($pct%) | POST_0: $totalFolders | Elapsed: $([int]$elapsed)s$heedsTag"
+
+            # Primary completion: all designs verified
+            if ($completed -ge $expectedDesigns) {
+              $mins = [math]::Round($elapsed/60, 1)
+              Log ""
+              Log "========================================================"
+              Log "  STUDY COMPLETE!"
+              Log "========================================================"
+              Log "Verified designs: $completed"
+              Log "Total time: $([int]$elapsed) seconds ($mins minutes)"
+              break
+            }
+
+            # HEEDS finished - do thorough per-design check and exit if all present
+            if ($heedsFinished) {
+              Log "HEEDS run complete - verifying each design..."
+              $thoroughCount = 0
+              $designFolders2 = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
+              foreach ($d in $designFolders2) {
+                $pch = Test-Path "$($d.FullName)\Analysis_1\randombeamx.pch"
+                $csv = Test-Path "$($d.FullName)\Analysis_1\acceleration_results.csv"
+                Log "  $($d.Name): PCH=$pch CSV=$csv"
+                if ($pch -and $csv) { $thoroughCount++ }
+              }
+              if ($thoroughCount -ge $expectedDesigns) {
+                $mins = [math]::Round($elapsed/60, 1)
+                Log ""
+                Log "========================================================"
+                Log "  STUDY COMPLETE! HEEDS finished + all $thoroughCount designs verified"
+                Log "========================================================"
+                Log "Total time: $([int]$elapsed) seconds ($mins minutes)"
+                break
+              }
+            }
+
+            if ($elapsed -gt $timeoutSec) {
+              Log "ERROR: Study timed out after $timeoutSec seconds"
+              Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
+              Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
+              Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
+              exit 1
+            }
+
+            # Stall detection - no patient mode; HEEDS-done exit is handled above
+            if ($completed -eq $lastCount) {
+              $stallTime += 15
+              if ($stallTime -ge $maxStall) {
+                Log "ERROR: Stalled for $stallTime seconds (max: $maxStall) | HEEDS finished: $heedsFinished | Verified: $completed/$expectedDesigns"
+                # Log per-design status for debugging
+                $designFolders3 = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
+                foreach ($d in $designFolders3) {
+                  $pch = Test-Path "$($d.FullName)\Analysis_1\randombeamx.pch"
+                  $csv = Test-Path "$($d.FullName)\Analysis_1\acceleration_results.csv"
+                  Log "  $($d.Name): PCH=$pch CSV=$csv"
+                }
+                Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
+                Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
+                Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
+                exit 1
+              }
+            } else {
+              $stallTime = 0
+              $lastCount = $completed
+            }
+
+            Start-Sleep -Seconds 15
+          }
+
+      # ================================================================
+      # LLM REPORT 3: HEEDS Run Status
+      # ================================================================
+      - name: "LLM Report: HEEDS Run Status"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $studyLog = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1\Study_1.log"
+          $stderrFile = "$reportsDir\report3_stderr.log"
+
+          # Build extra data with design verification
+          $post0 = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1\POST_0"
+          $extra = "Design verification:`n"
+          if (Test-Path $post0) {
+            Get-ChildItem "$post0\Design*" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+              $pch = Test-Path "$($_.FullName)\Analysis_1\randombeamx.pch"
+              $csv = Test-Path "$($_.FullName)\Analysis_1\acceleration_results.csv"
+              $extra += "  $($_.Name): PCH=$pch CSV=$csv`n"
+            }
+          }
+          $extra += "Expected designs: ${{ steps.config.outputs.EXPECTED_DESIGNS }}"
+
+          Log "Generating HEEDS Run Status report..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type heeds_status `
+            --data-file "$studyLog" `
+            --output-dir "$reportsDir" `
+            --extra-data "$extra" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: HEEDS status report failed (non-fatal)" }
+
+      # ================================================================
+      # STAGE 6: DATABASE IMPORT
+      # ================================================================
+      - name: Setup database
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  SETTING UP DATABASE"
+          Log "========================================================"
+
+          $dbPath = "${{ steps.config.outputs.DB_PATH }}"
+
+          # Check for corrupt database and delete if needed
+          if (Test-Path $dbPath) {
+            $dbPathFwd = $dbPath.Replace('\', '/')
+            & "${{ vars.PYTHON_PATH }}" -c "import sqlite3,sys;c=sqlite3.connect('$dbPathFwd');r=c.execute('PRAGMA integrity_check').fetchone();ok=r[0]=='ok';c.execute('SELECT COUNT(*) FROM psd_data').fetchone() if ok else None;c.close();sys.exit(0 if ok else 1)"
+            if ($LASTEXITCODE -ne 0) {
+              Log "WARNING: Database corrupt or inaccessible, deleting and recreating"
+              Remove-Item $dbPath -Force -ErrorAction SilentlyContinue
+            } else {
+              Log "Database integrity OK"
+            }
+          }
+
+          & "${{ vars.PYTHON_PATH }}" heeds/database/setup_database.py `
+            --db_path "$dbPath"
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "ERROR: Database setup failed"
+            exit 1
+          }
+          Log "========================================================"
+
+      - name: Batch import HEEDS results
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $post0Dir = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1\POST_0"
+
+          Log "========================================================"
+          Log "  BATCH IMPORTING HEEDS RESULTS"
+          Log "========================================================"
+          Log "POST_0 dir: $post0Dir"
+
+          if (-not (Test-Path $post0Dir)) {
+            Log "ERROR: POST_0 directory not found at $post0Dir"
+            exit 1
+          }
+
+          & "${{ vars.PYTHON_PATH }}" heeds/database/batch_import_to_database.py `
+            --post0_dir "$post0Dir" `
+            --study "$studyName" `
+            --db_path "${{ steps.config.outputs.DB_PATH }}" `
+            --reset_study
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "ERROR: Batch import failed"
+            exit 1
+          }
+          Log "========================================================"
+
+      - name: Import baseline into database
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+
+          Log "========================================================"
+          Log "  IMPORTING BASELINE AS CASE 0"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" heeds/database/Pch_TO_Database.py `
+            --pch baseline/randombeamx.pch `
+            --study "$studyName" --study_type "sweep" `
+            --case_name "baseline" `
+            --case_number 0 `
+            --is_baseline `
+            --bush_file baseline/Bush.blk `
+            --db_path "${{ steps.config.outputs.DB_PATH }}" `
+            --replace
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "ERROR: Baseline import failed"
+            exit 1
+          }
+          Log "Baseline imported as case 0"
+          Log "========================================================"
+
+      - name: Show database summary
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          Log "========================================================"
+          Log "  DATABASE SUMMARY"
+          Log "========================================================"
+
+          & "${{ vars.PYTHON_PATH }}" pipeline/db_summary.py --db_path "${{ steps.config.outputs.DB_PATH }}"
+          Log "========================================================"
+
+      # ================================================================
+      # LLM REPORT 4: Database Health
+      # ================================================================
+      - name: "LLM Report: Database Health"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $stderrFile = "$reportsDir\report4_stderr.log"
+          Log "Generating Database Health report..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type db_health `
+            --db-path "${{ steps.config.outputs.DB_PATH }}" `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: DB health report failed (non-fatal)" }
+
+      # ================================================================
+      # STAGE 7: ML TRAINING
+      # ================================================================
+      - name: Extract features
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $dbPath = "${{ steps.config.outputs.DB_PATH }}"
+          $outputDir = Split-Path $dbPath
+          $outputFile = "$outputDir\training_matrix.npz"
+          $stderrFile = "$outputDir\extract_features_stderr.log"
+
+          Log "========================================================"
+          Log "  EXTRACTING ML FEATURES"
+          Log "========================================================"
+          Log "Database: $dbPath"
+          Log "Output: $outputFile"
+
+          # Let SQLite locks from previous steps fully release (Windows-specific)
+          Start-Sleep -Seconds 3
+
+          # Run Python with stderr redirected to file (avoids PowerShell ErrorRecord issue)
+          # stdout flows to GHA log in real-time; stderr captured separately
+          & "${{ vars.PYTHON_PATH }}" Scripts/extract_features.py `
+            --db "$dbPath" `
+            --output "$outputFile" 2>$stderrFile
+
+          $exitCode = $LASTEXITCODE
+
+          # Always show stderr content (warnings or errors)
+          if (Test-Path $stderrFile) {
+            $stderr = Get-Content $stderrFile -Raw
+            if ($stderr -and $stderr.Trim()) {
+              Log "Python stderr output:"
+              Get-Content $stderrFile | ForEach-Object { Log "  $_" }
+            }
+          }
+
+          if ($exitCode -ne 0) {
+            Log "ERROR: Feature extraction failed (exit code $exitCode)"
+            exit 1
+          }
+
+          echo "TRAINING_MATRIX=$outputFile" >> $env:GITHUB_OUTPUT
+          Log "========================================================"
+        id: features
+
+      - name: Train classifier
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $dbDir = Split-Path "${{ steps.config.outputs.DB_PATH }}"
+          $inputFile = "${{ steps.features.outputs.TRAINING_MATRIX }}"
+          $modelFile = "$dbDir\bolt_classifier.pkl"
+          $reportFile = "$dbDir\classification_report.txt"
+          $stderrFile = "$dbDir\train_classifier_stderr.log"
+
+          Log "========================================================"
+          Log "  TRAINING ML CLASSIFIER"
+          Log "========================================================"
+          Log "Input: $inputFile"
+          Log "Model output: $modelFile"
+          Log "Report: $reportFile"
+
+          & "${{ vars.PYTHON_PATH }}" Scripts/train_classifier.py `
+            --input "$inputFile" `
+            --model-output "$modelFile" `
+            --report "$reportFile" 2>$stderrFile
+
+          $exitCode = $LASTEXITCODE
+
+          if (Test-Path $stderrFile) {
+            $stderr = Get-Content $stderrFile -Raw
+            if ($stderr -and $stderr.Trim()) {
+              Log "Python stderr output:"
+              Get-Content $stderrFile | ForEach-Object { Log "  $_" }
+            }
+          }
+
+          if ($exitCode -ne 0) {
+            Log "WARNING: Classifier training failed (exit code $exitCode, may need more data)"
+          } else {
+            Log "Classifier trained successfully"
+            Log ""
+            Log "=== Classification Report ==="
+            Get-Content $reportFile
+          }
+          Log "========================================================"
+
+      # ================================================================
+      # LLM REPORT 5: Feature Matrix
+      # ================================================================
+      - name: "LLM Report: Feature Matrix"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $dbDir = Split-Path "${{ steps.config.outputs.DB_PATH }}"
+          $stderrFile = "$reportsDir\report5_stderr.log"
+          Log "Generating Feature Matrix report..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type feature_matrix `
+            --data-file "$dbDir\training_matrix.npz" `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Feature matrix report failed (non-fatal)" }
+
+      # ================================================================
+      # LLM REPORT 6: Classification
+      # ================================================================
+      - name: "LLM Report: Classification"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $dbDir = Split-Path "${{ steps.config.outputs.DB_PATH }}"
+          $stderrFile = "$reportsDir\report6_stderr.log"
+          Log "Generating Classification report..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type classification `
+            --data-file "$dbDir\classification_report.txt" `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Classification report failed (non-fatal)" }
+
+      # ================================================================
+      # LLM REPORT 7: Executive Summary
+      # ================================================================
+      - name: "LLM Report: Pipeline Executive Summary"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $stderrFile = "$reportsDir\report7_stderr.log"
+          Log "Generating Pipeline Executive Summary..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type executive_summary `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Executive summary report failed (non-fatal)" }
+          else {
+            Log ""
+            Log "=== EXECUTIVE SUMMARY ==="
+            Get-Content "$reportsDir\07_executive_summary.md" -Encoding utf8
+            Log "========================="
+          }
+
+      # ================================================================
+      # MASTER REPORT: Concatenate all pipeline reports
+      # ================================================================
+      - name: "Concatenate Master Report"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          Log "Concatenating all pipeline reports into master document..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/concatenate_reports.py `
+            --reports-dir "$reportsDir"
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Master report concatenation failed (non-fatal)" }
+          else {
+            Log ""
+            Log "=== MASTER REPORT ==="
+            Log "Location: $reportsDir\00_master_report.md"
+            Log "====================="
+          }
+
+      # ================================================================
+      # STAGE 8: CLEANUP & REPORT
+      # ================================================================
+      - name: Cleanup HEEDS processes
+        if: always()
+        shell: powershell
+        run: |
+          Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
+          Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
+          Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
+          Stop-Process -Name "nastranw" -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+
+      - name: Report Results
+        if: always()
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+          $expectedDesigns = "${{ steps.config.outputs.EXPECTED_DESIGNS }}"
+          $studyFolder = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1"
+
+          Log "========================================================"
+          Log "  SUPER WORKFLOW - FINAL REPORT"
+          Log "========================================================"
+          Log "Study: $studyName"
+          Log "Expected: $expectedDesigns designs"
+          Log "Config-driven: YES (fem_input/config.yaml)"
+          Log "Pipeline scripts: pipeline/"
+          Log "Database: ${{ steps.config.outputs.DB_PATH }}"
+          Log ""
+
+          if (Test-Path $studyFolder) {
+            $post0Folder = "$studyFolder\POST_0"
+            $verified = 0
+            $designFolders = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
+            foreach ($design in $designFolders) {
+              $pchExists = Test-Path "$($design.FullName)\Analysis_1\randombeamx.pch"
+              $csvExists = Test-Path "$($design.FullName)\Analysis_1\acceleration_results.csv"
+              if ($pchExists -and $csvExists) { $verified++ }
+            }
+
+            $totalFolders = ($designFolders | Measure-Object).Count
+            Log "Study folder: $studyFolder"
+            Log "POST_0 folders: $totalFolders"
+            Log "Fully verified (PCH + CSV): $verified / $expectedDesigns"
+
+            if ($verified -ge [int]$expectedDesigns) {
+              Log ""
+              Log "  >>> SUPER WORKFLOW: ALL DESIGNS VERIFIED <<<"
+              Log ""
+            }
+
+            # Show sample design
+            if ($verified -gt 0) {
+              Log "Sample (Design1/Analysis_1):"
+              $sample = "$post0Folder\Design1\Analysis_1"
+              if (Test-Path $sample) {
+                Get-ChildItem $sample -ErrorAction SilentlyContinue | Select-Object -First 10 | ForEach-Object {
+                  Log "  $($_.Name) ($($_.Length) bytes)"
+                }
+              }
+            }
+
+            # Study log tail
+            $logFile = "$studyFolder\Study_1.log"
+            if (Test-Path $logFile) {
+              Log ""
+              Log "=== Study Log (last 10 lines) ==="
+              Get-Content $logFile -Tail 10
+            }
+          } else {
+            Log "WARNING: Study folder not found"
+          }
+          Log "========================================================"
