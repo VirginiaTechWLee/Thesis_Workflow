@@ -470,71 +470,127 @@ def capture_mode_shape(geom, mode_data, mode_num, freq_hz, run_folder):
 
 
 def capture_cbush_locations(geom, run_folder):
-    """Render mesh highlighting CBUSH bolt locations with labels."""
+    """Render the zigzag beam chain: lower→CBEAM→upper→CBUSH→lower→CBEAM→...
+
+    Actual FEM topology from the DAT file:
+      - Upper nodes (1-10) and lower nodes (111-1111) are co-located at each station
+      - CBUSH springs connect upper↔lower at same Z (bolted joints)
+      - CBEAM segments connect lower node at station N to upper node at station N+1
+      - SPC fixes node 1 (base) — the "vibe table" mount point
+
+    The diagram shows the beam as a vertical snake with CBUSH joints inline,
+    sitting on a shaker/vibe table base plate.
+    """
     fig = plt.figure(figsize=FIG_SIZE, facecolor='white')
-    ax = setup_2d_axes(fig, 'CBUSH Bolt Locations',
-                       f'{len(geom["cbush"])} spring elements connecting beam to ground')
+    ax = setup_2d_axes(fig, 'Bolted Beam Joint Model',
+                       f'{len(geom["cbush"])} CBUSH bolted joints along beam axis')
 
     nodes = geom['nodes']
-    segments = get_beam_segments(nodes, geom['cbeam'])
+    x_center = 0  # Beam centerline
 
-    # Draw beam (faded)
-    for z1, z2, y1, y2, nid1, nid2 in segments:
-        draw_thick_beam(ax, z1, z2, y_center=(y1 + y2) / 2,
-                        facecolor='#EFF6FF', edgecolor='#93C5FD', lw=1.5, alpha=0.7)
+    # Build sorted station list from CBUSH connectivity
+    # Each CBUSH connects upper node (1-10) to lower node (111-1111) at same Z
+    stations = []
+    for eid, nids in sorted(geom['cbush'], key=lambda x: x[0]):
+        n_upper = nids[0]   # Upper node (1-10)
+        n_lower = nids[1]   # Lower node (111-1111)
+        z_pos = nodes[n_upper][2]
+        stations.append({'eid': eid, 'upper': n_upper, 'lower': n_lower, 'z': z_pos})
+    stations.sort(key=lambda s: s['z'])
 
-    # Draw ground side (thin bar to the left)
-    ground_nids = sorted([nid for nid in nodes if nid <= 10], key=lambda n: nodes[n][2])
-    if ground_nids:
-        gz_min = nodes[ground_nids[0]][2]
-        gz_max = nodes[ground_nids[-1]][2]
-        # Ground bar
-        ground_x = -60
-        rect = Rectangle((ground_x - 8, gz_min - 10), 16, gz_max - gz_min + 20,
-                          facecolor='#D1D5DB', edgecolor='#6B7280', linewidth=1.5,
-                          alpha=0.6, zorder=1, hatch='///')
-        ax.add_patch(rect)
-        ax.text(ground_x, gz_max + 30, 'GROUND', fontsize=8, fontweight='bold',
-                color='#6B7280', ha='center', va='bottom')
+    # Find the tip node (1111) — lower node at top, no CBUSH above it
+    all_lower = set(nids[1] for _, nids in geom['cbush'])
+    all_upper = set(nids[0] for _, nids in geom['cbush'])
+    tip_candidates = [nid for nid in nodes if nid not in all_upper and nid > 100]
+    tip_node = max(tip_candidates, key=lambda n: nodes[n][2]) if tip_candidates else None
 
-    # Draw CBUSH bolts with connecting lines to ground
-    for eid, nids in geom['cbush']:
-        n_ground = nodes[nids[0]]  # Ground node
-        n_beam = nodes[nids[1]]    # Beam node
-        mid_z = (n_ground[2] + n_beam[2]) / 2
+    # --- Draw CBEAM segments (blue beam sections between CBUSH joints) ---
+    for z1, z2, y1, y2, nid1, nid2 in get_beam_segments(nodes, geom['cbeam']):
+        draw_thick_beam(ax, z1, z2, y_center=x_center,
+                        facecolor=COLOR_BEAM_FILL, edgecolor=COLOR_BEAM, lw=2, alpha=0.85)
 
-        # Spring line from ground bar to beam
-        ax.plot([ground_x + 8, -BEAM_HALF_WIDTH], [mid_z, mid_z],
-                color=COLOR_CBUSH, linewidth=1.5, linestyle='-', alpha=0.6, zorder=3)
+    # --- Draw CBUSH joints as vertical spring symbols at each station ---
+    spring_height = 20  # Visual height of the spring symbol
+    for st in stations:
+        z = st['z']
+        # Draw vertical zigzag spring symbol centered at the station
+        n_coils = 8
+        spring_z = np.linspace(z - spring_height/2, z + spring_height/2, n_coils * 2 + 2)
+        spring_x = np.zeros_like(spring_z)
+        for k in range(1, len(spring_z) - 1):
+            spring_x[k] = BEAM_HALF_WIDTH * 0.6 * ((-1) ** k)
+        spring_x += x_center
 
-        # Zigzag spring symbol
-        spring_y = np.linspace(ground_x + 8, -BEAM_HALF_WIDTH, 12)
-        spring_z = mid_z + np.array([0, 4, -4, 4, -4, 4, -4, 4, -4, 4, -4, 0]) * 2.5
-        ax.plot(spring_y, spring_z, color=COLOR_CBUSH, linewidth=1.2, alpha=0.8, zorder=3)
+        ax.plot(spring_x, spring_z, color=COLOR_CBUSH, linewidth=2.0, alpha=0.9, zorder=4)
 
-        # Large bolt marker on beam face
-        ax.plot(-BEAM_HALF_WIDTH, mid_z, 'D', color=COLOR_CBUSH, markersize=CBUSH_MARKER_SIZE,
-                markeredgecolor='black', markeredgewidth=1.0, zorder=5)
+        # Node markers — upper and lower co-located (slight offset for visibility)
+        ax.plot(x_center, z - spring_height/2, 'o', color=COLOR_NODE,
+                markersize=5, zorder=6)  # Lower end
+        ax.plot(x_center, z + spring_height/2, 'o', color=COLOR_NODE,
+                markersize=5, zorder=6)  # Upper end
 
-        # Label
-        ax.text(BEAM_HALF_WIDTH + 10, mid_z, f'Bolt {eid}\n(z={mid_z:.0f})',
-                fontsize=7, color=COLOR_CBUSH, fontweight='bold',
+        # Bolt diamond marker
+        ax.plot(x_center, z, 'D', color=COLOR_CBUSH, markersize=CBUSH_MARKER_SIZE - 2,
+                markeredgecolor='black', markeredgewidth=1.0, zorder=7)
+
+        # Label to the right
+        ax.text(BEAM_HALF_WIDTH + 25, z,
+                f'Bolt {st["eid"]}  (z={z:.0f})\nNodes {st["upper"]}↔{st["lower"]}',
+                fontsize=6.5, color=COLOR_CBUSH, fontweight='bold',
                 ha='left', va='center',
                 bbox=dict(boxstyle='round,pad=0.2', facecolor='white',
-                          edgecolor=COLOR_CBUSH, alpha=0.8, linewidth=0.5))
+                          edgecolor=COLOR_CBUSH, alpha=0.85, linewidth=0.5))
+
+    # --- Draw SPC base (vibe table / shaker) ---
+    spc_z = min(st['z'] for st in stations) if stations else 0
+    table_width = BEAM_HALF_WIDTH * 4
+    # Base plate
+    base_rect = Rectangle((x_center - table_width, spc_z - 55),
+                           table_width * 2, 15,
+                           facecolor='#4B5563', edgecolor='#1F2937', linewidth=2,
+                           zorder=2)
+    ax.add_patch(base_rect)
+    ax.text(x_center, spc_z - 47, 'BASE PLATE', fontsize=7, fontweight='bold',
+            color='white', ha='center', va='center', zorder=3)
+
+    # Shaker body below base plate
+    shaker_rect = Rectangle((x_center - table_width * 0.7, spc_z - 85),
+                             table_width * 1.4, 30,
+                             facecolor='#9CA3AF', edgecolor='#6B7280', linewidth=1.5,
+                             zorder=2, hatch='///')
+    ax.add_patch(shaker_rect)
+    ax.text(x_center, spc_z - 70, 'SHAKER', fontsize=7, fontweight='bold',
+            color='#374151', ha='center', va='center', zorder=3)
+
+    # SPC triangle at base node
+    tri_size = 12
+    tri = Polygon([[x_center, spc_z - 40],
+                   [x_center - tri_size, spc_z - 55],
+                   [x_center + tri_size, spc_z - 55]],
+                  closed=True, facecolor=COLOR_SPC, edgecolor='black',
+                  linewidth=1.5, zorder=5)
+    ax.add_patch(tri)
+    ax.text(x_center + tri_size + 5, spc_z - 47, 'SPC (fixed)',
+            fontsize=7, color=COLOR_SPC, fontweight='bold', va='center')
+
+    # --- Tip node label ---
+    if tip_node:
+        tip_z = nodes[tip_node][2]
+        ax.plot(x_center, tip_z, 'o', color=COLOR_NODE, markersize=7, zorder=6)
+        ax.text(x_center + BEAM_HALF_WIDTH + 10, tip_z, f'Tip (node {tip_node})',
+                fontsize=7, color=COLOR_NODE, fontweight='bold', va='center')
 
     # Legend
     ax.plot([], [], 'D', color=COLOR_CBUSH, markeredgecolor='black',
-            markersize=10, label=f'CBUSH bolt ({len(geom["cbush"])} total)')
-    ax.plot([], [], 's', color='#EFF6FF', markeredgecolor='#93C5FD',
-            markersize=12, label='CBEAM (beam)')
-    ax.fill_between([], [], color='#D1D5DB', alpha=0.6, label='Ground structure',
-                    hatch='///')
-    ax.legend(loc='upper right', fontsize=10, framealpha=0.9)
+            markersize=10, label=f'CBUSH bolted joint ({len(geom["cbush"])})')
+    ax.plot([], [], 's', color=COLOR_BEAM_FILL, markeredgecolor=COLOR_BEAM,
+            markersize=12, label='CBEAM segment')
+    ax.plot([], [], color=COLOR_CBUSH, linewidth=2, label='Spring (bolt stiffness)')
+    ax.legend(loc='upper right', fontsize=9, framealpha=0.9)
 
     all_z = [nodes[nid][2] for nid in nodes]
-    ax.set_xlim(-120, 180)
-    ax.set_ylim(min(all_z) - 80, max(all_z) + 80)
+    ax.set_xlim(-100, 160)
+    ax.set_ylim(min(all_z) - 110, max(all_z) + 60)
 
     out = os.path.join(run_folder, 'cbush_locations.png')
     fig.savefig(out, dpi=DPI, bbox_inches='tight', facecolor='white')

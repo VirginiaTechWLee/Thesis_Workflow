@@ -183,7 +183,7 @@ IMAGE_SECTION_MAP = {
 
 IMAGE_CAPTIONS = {
     "mesh_overview.png":        "Figure: FEM Mesh Overview — 2D elevation with element coloring",
-    "cbush_locations.png":      "Figure: CBUSH bolt spring locations with ground connection",
+    "cbush_locations.png":      "Figure: Bolted beam joint model — CBUSH spring connections along beam axis",
     "boundary_conditions.png":  "Figure: SPC boundary conditions (fixed base)",
     "mode_shape_01.png":        "Figure: Mode 1 — deformed shape with displacement colormap",
     "mode_shape_02.png":        "Figure: Mode 2 — deformed shape with displacement colormap",
