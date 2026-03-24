@@ -417,61 +417,66 @@ def gather_data_db_health(db_path):
 
     try:
         cursor.execute(
-            "SELECT c.case_name, p.element_id, p.parameter_name, p.value "
+            "SELECT c.case_name, p.element_id, p.K4, p.K5, p.K6 "
             "FROM parameters p JOIN cases c ON p.case_id = c.case_id "
-            "WHERE p.parameter_name LIKE '%K4%' ORDER BY c.case_number"
+            "ORDER BY c.case_number, p.element_id"
         )
         rows = cursor.fetchall()
         if rows:
-            lines.append("\nK4 stiffness values per case:")
+            lines.append("\nStiffness values per case (K4, K5, K6):")
             for row in rows:
-                lines.append(f"  {row[0]}: element {row[1]}, {row[2]} = {row[3]}")
+                lines.append(
+                    f"  {row[0]}: element {row[1]}, "
+                    f"K4={row[2]:.3e}, K5={row[3]:.3e}, K6={row[4]:.3e}"
+                )
     except Exception:
         pass
 
-    # CBUSH element force data — check peaks table for CBUSH-related entries
+    # PSD peaks data — node-level response peaks from peaks table
     try:
         cursor.execute(
             "SELECT c.case_name, c.case_number, c.is_baseline, "
-            "pk.element_id, pk.response_type, pk.peak_value, pk.frequency_hz "
+            "pk.node_id, pk.dof, pk.data_type, pk.area, "
+            "pk.peak1_freq, pk.peak1_psd, pk.peak2_freq, pk.peak2_psd, "
+            "pk.peak3_freq, pk.peak3_psd "
             "FROM peaks pk JOIN cases c ON pk.case_id = c.case_id "
-            "WHERE pk.element_id IS NOT NULL "
-            "ORDER BY c.case_number, pk.element_id"
+            "ORDER BY c.case_number, pk.node_id, pk.dof"
         )
-        force_rows = cursor.fetchall()
-        if force_rows:
-            lines.append("\nCBUSH element force/response peaks:")
-            for row in force_rows[:100]:  # Cap at 100 rows
+        peak_rows = cursor.fetchall()
+        if peak_rows:
+            lines.append(f"\nPSD response peaks ({len(peak_rows)} total rows):")
+            for row in peak_rows[:80]:  # Cap display at 80 rows
                 bl = " [BASELINE]" if row[2] else ""
                 lines.append(
-                    f"  Case {row[1]} ({row[0]}){bl}: elem {row[3]}, "
-                    f"{row[4]} = {row[5]:.6e} @ {row[6]:.2f} Hz"
+                    f"  Case {row[1]} ({row[0]}){bl}: node {row[3]}, "
+                    f"dof={row[4]}, type={row[5]}, area={row[6]:.6e}, "
+                    f"pk1={row[8]:.6e}@{row[7]:.2f}Hz"
                 )
-            if len(force_rows) > 100:
-                lines.append(f"  ... and {len(force_rows) - 100} more rows")
+            if len(peak_rows) > 80:
+                lines.append(f"  ... and {len(peak_rows) - 80} more rows")
 
-            # Compute amplification ratios: swept / baseline for matching elements
-            baseline_forces = {}
-            swept_forces = {}
-            for row in force_rows:
-                key = (row[3], row[4])  # (element_id, response_type)
+            # Compute amplification ratios: swept area / baseline area
+            baseline_areas = {}
+            swept_areas = {}
+            for row in peak_rows:
+                key = (row[3], row[4], row[5])  # (node_id, dof, data_type)
                 if row[2]:  # is_baseline
-                    baseline_forces[key] = row[5]
+                    baseline_areas[key] = row[6]  # area
                 else:
-                    if key not in swept_forces:
-                        swept_forces[key] = []
-                    swept_forces[key].append((row[0], row[5]))
+                    if key not in swept_areas:
+                        swept_areas[key] = []
+                    swept_areas[key].append((row[0], row[6]))
 
-            if baseline_forces and swept_forces:
-                lines.append("\nAmplification ratios (swept / baseline):")
-                for key in sorted(baseline_forces.keys()):
-                    if key in swept_forces:
-                        base_val = baseline_forces[key]
+            if baseline_areas and swept_areas:
+                lines.append("\nPSD area amplification ratios (swept / baseline):")
+                for key in sorted(baseline_areas.keys()):
+                    if key in swept_areas:
+                        base_val = baseline_areas[key]
                         if abs(base_val) > 1e-20:
-                            for case_name, swept_val in swept_forces[key][:10]:
+                            for case_name, swept_val in swept_areas[key][:10]:
                                 ratio = swept_val / base_val
                                 lines.append(
-                                    f"  elem {key[0]}, {key[1]}: "
+                                    f"  node {key[0]}, dof={key[1]}, {key[2]}: "
                                     f"{case_name} = {ratio:.3f}x baseline"
                                 )
     except Exception:
@@ -510,13 +515,14 @@ def gather_data_feature_matrix(data_file):
         if zero_var > 0:
             lines.append(f"Zero-variance features: {zero_var}")
 
-    if "y" in data:
-        y = data["y"]
-        lines.append(f"\ny shape: {y.shape}")
-        unique, counts = np.unique(y, return_counts=True)
-        lines.append("Label distribution:")
-        for label, count in zip(unique, counts):
-            lines.append(f"  Class {label}: {count} samples")
+    for y_name in ["y", "y_bolt", "y_binary", "y_severity"]:
+        if y_name in data:
+            y = data[y_name]
+            lines.append(f"\n{y_name} shape: {y.shape}")
+            unique, counts = np.unique(y, return_counts=True)
+            lines.append(f"{y_name} label distribution:")
+            for label, count in zip(unique, counts):
+                lines.append(f"  Class {label}: {count} samples")
 
     if "feature_names" in data:
         names = data["feature_names"]
@@ -555,12 +561,15 @@ def write_report(output_dir, report_type, content):
     cfg = REPORT_CONFIGS[report_type]
     output_path = os.path.join(output_dir, cfg["filename"])
 
-    # Post-process: fix any ### headings the LLM may have generated
+    # Post-process: fix headings the LLM may have generated
     lines = content.split('\n')
     fixed_lines = []
     for line in lines:
+        # Strip top-level # headings (we add our own # title in the header)
+        if line.startswith('# ') and not line.startswith('## '):
+            line = '## ' + line[2:]
         # Convert ### to ## (but leave #### alone — tables sometimes use them)
-        if line.startswith('### ') and not line.startswith('#### '):
+        elif line.startswith('### ') and not line.startswith('#### '):
             line = '## ' + line[4:]
         fixed_lines.append(line)
     content = '\n'.join(fixed_lines)
