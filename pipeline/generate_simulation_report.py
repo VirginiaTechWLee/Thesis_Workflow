@@ -146,8 +146,10 @@ def generate_report(f06_content, f06_filename, model_input_content=""):
         "beam cross-section, and CBUSH stiffness tables are handled separately — "
         "do NOT include those sections.\n\n"
         "1. **Model Summary** — nodes, elements, CBUSH count, boundary conditions\n"
-        "2. **Natural Frequencies** — first 10 modes with frequencies in Hz "
-        "(use a markdown table: | Mode | Frequency (Hz) | Generalized Mass | )\n"
+        "2. **Natural Frequencies & Modal Effective Mass** — first 10 modes with frequencies in Hz "
+        "and the MODAL EFFECTIVE MASS FRACTION data from the F06. Use this markdown table format:\n"
+        "| Mode | Frequency (Hz) | T1 Fraction | T2 Fraction | T3 Fraction | T1 Sum | T2 Sum | T3 Sum |\n"
+        "Do NOT include a Generalized Mass column (it is always 1.0 and not useful).\n"
         "3. **Warnings and Fatals** — any FATAL or WARNING messages\n"
         "4. **DBALL Chain Status** — explicitly state which solution sequences ran "
         "(SOL 103 modal analysis AND/OR SOL 111 frequency response / random vibration). "
@@ -276,11 +278,20 @@ def _parse_model_inputs(run_folder):
         'input_files': [],    # basenames of DAT + BLK found
     }
 
-    # Find DAT files
-    dat_files = gmod.glob(os.path.join(run_folder, '*.dat')) + \
-                gmod.glob(os.path.join(run_folder, '*.DAT'))
-    blk_files = gmod.glob(os.path.join(run_folder, '*.blk')) + \
-                gmod.glob(os.path.join(run_folder, '*.BLK'))
+    # Find DAT and BLK files (deduplicate for case-insensitive Windows)
+    def _dedup_glob(folder, *patterns):
+        seen = set()
+        result = []
+        for pat in patterns:
+            for p in gmod.glob(os.path.join(folder, pat)):
+                norm = os.path.normcase(os.path.normpath(p))
+                if norm not in seen:
+                    seen.add(norm)
+                    result.append(p)
+        return result
+
+    dat_files = _dedup_glob(run_folder, '*.dat', '*.DAT')
+    blk_files = _dedup_glob(run_folder, '*.blk', '*.BLK')
 
     # Record input filenames
     for fpath in dat_files + blk_files:
