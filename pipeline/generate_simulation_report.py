@@ -102,6 +102,84 @@ def extract_f06_summary(f06_path, max_chars=80000):
     return combined[:max_chars]
 
 
+def extract_cbush_force_peaks(run_folder):
+    """Extract peak CBUSH force PSD from F06 files.
+
+    Parses the 'FORCES IN BUSH ELEMENTS (CBUSH) POWER SPECTRAL DENSITY'
+    blocks and returns a summary string with peak force/moment per element.
+    """
+    f06_files = globmod.glob(os.path.join(run_folder, '*.f06')) + \
+                globmod.glob(os.path.join(run_folder, '*.F06'))
+    if not f06_files:
+        return ""
+
+    all_peaks = {}  # element_id -> {component: (peak_value, freq)}
+
+    for f06_path in f06_files:
+        fname = os.path.basename(f06_path)
+        try:
+            with open(f06_path, 'r', errors='ignore') as f:
+                lines = f.readlines()
+        except Exception:
+            continue
+
+        current_elem = None
+        components = ['FORCE-X', 'FORCE-Y', 'FORCE-Z', 'MOMENT-X', 'MOMENT-Y', 'MOMENT-Z']
+        in_cbush_psdf = False
+
+        for i, line in enumerate(lines):
+            # Detect CBUSH PSDF block
+            if 'F O R C E S   I N   B U S H   E L E M E N T S' in line:
+                # Check next line for PSDF
+                if i + 1 < len(lines) and 'POWER SPECTRAL DENSITY' in lines[i + 1]:
+                    in_cbush_psdf = True
+                    continue
+
+            # Get element ID
+            if 'ELEMENT-ID =' in line:
+                parts = line.strip().split('=')
+                if len(parts) >= 2:
+                    try:
+                        current_elem = int(parts[-1].strip())
+                        if current_elem not in all_peaks:
+                            all_peaks[current_elem] = {c: (0.0, 0.0) for c in components}
+                    except ValueError:
+                        pass
+                continue
+
+            # Parse frequency data rows (start with '0' in column 1)
+            if in_cbush_psdf and current_elem is not None and line.startswith('0'):
+                vals = line.split()
+                if len(vals) >= 7:
+                    try:
+                        freq = float(vals[1])
+                        for j, comp in enumerate(components):
+                            val = float(vals[2 + j])
+                            if val > all_peaks[current_elem][comp][0]:
+                                all_peaks[current_elem][comp] = (val, freq)
+                    except (ValueError, IndexError):
+                        pass
+
+            # End of block detection (page break or non-data line)
+            if in_cbush_psdf and current_elem is not None:
+                if line.startswith('1') and 'PAGE' in line:
+                    # Check if next block is still CBUSH PSDF
+                    in_cbush_psdf = False
+
+    if not all_peaks:
+        return ""
+
+    # Build summary table
+    lines_out = ["ELEMENT  COMPONENT    PEAK_PSD_VALUE    FREQ_OF_PEAK(Hz)"]
+    for elem_id in sorted(all_peaks.keys()):
+        for comp, (peak, freq) in all_peaks[elem_id].items():
+            if peak > 0:
+                lines_out.append(f"  {elem_id:>6}  {comp:<10}  {peak:>14.6E}    {freq:>10.3f}")
+
+    print(f"  Extracted CBUSH force peaks: {len(all_peaks)} elements")
+    return '\n'.join(lines_out)
+
+
 def extract_pch_summary(run_folder, max_chars=20000):
     """Extract PCH punch file header lines ($ACCE / $DISP) for peak PSD data.
 
@@ -137,7 +215,7 @@ def extract_pch_summary(run_folder, max_chars=20000):
 # ---------------------------------------------------------------------------
 # LLM Report Generation
 # ---------------------------------------------------------------------------
-def generate_report(f06_content, f06_filename, model_input_content="", pch_content=""):
+def generate_report(f06_content, f06_filename, model_input_content="", pch_content="", force_content=""):
     """Call Anthropic API to generate simulation report."""
     try:
         import anthropic
@@ -178,6 +256,12 @@ def generate_report(f06_content, f06_filename, model_input_content="", pch_conte
             "  $ACCE = acceleration PSD, $DISP = displacement PSD\n"
             f"{pch_content}\n"
             "--- END PUNCH FILE HEADERS ---\n"
+        )
+    if force_content:
+        extra_data_block += (
+            "\n\n--- BEGIN CBUSH FORCE PSD PEAKS (per element, peak value and frequency) ---\n"
+            f"{force_content}\n"
+            "--- END CBUSH FORCE PSD PEAKS ---\n"
         )
 
     user_prompt = (
@@ -221,7 +305,19 @@ def generate_report(f06_content, f06_filename, model_input_content="", pch_conte
         "what does the response data mean for the joint design, are any nodes near "
         "qualification limits, and what would you change in the next design iteration?\n"
         "   - If SOL 111 is NOT present, state that clearly.\n"
-        "7. **Status** — title this section 'Analysis Complete — Ready for Workflow Integration' "
+        "7. **CBUSH Force Summary** — if CBUSH force PSD peak data is provided, include:\n"
+        "   - A **Peak CBUSH Force Table** in markdown format:\n"
+        "     | Element | Force-X | Force-Y | Force-Z | Moment-Y | Peak Freq (Hz) |\n"
+        "     Show all CBUSH elements. Use the peak values from the provided data.\n"
+        "     Omit columns that are essentially zero across all elements.\n"
+        "   - Identify which CBUSH element carries the highest force and moment loads.\n"
+        "   - Note which frequency drives the peak force — does it correlate to a "
+        "natural frequency from the modal table?\n"
+        "   - **Bolt Load Interpretation** — relate the CBUSH forces to joint loading: "
+        "which bolt location sees the highest demand, and is it driven by bending "
+        "(moment) or axial (force-Z) loading?\n"
+        "   - If no CBUSH force data is provided, skip this section entirely.\n"
+        "8. **Status** — title this section 'Analysis Complete — Ready for Workflow Integration' "
         "if no fatal errors, or 'Analysis Failed — Errors Detected' if there are fatals. "
         "Summarize whether the analysis ran cleanly and is ready for the next pipeline step. "
         "Do NOT use the words 'healthy' or 'DBALL-ready'.\n\n"
@@ -1644,8 +1740,11 @@ def main():
         # Read punch file headers for peak PSD acceleration/displacement data
         pch_content = extract_pch_summary(run_folder)
 
+        # Extract CBUSH force PSD peaks from F06
+        force_content = extract_cbush_force_peaks(run_folder)
+
         report_text = generate_report(combined_content, combined_filename,
-                                       model_input_content, pch_content)
+                                       model_input_content, pch_content, force_content)
 
     # Write DOCX report
     if use_docx:
