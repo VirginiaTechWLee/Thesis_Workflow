@@ -4,17 +4,21 @@ Generate LLM-powered pipeline reports at each stage of the super workflow.
 Each report uses the same grounded system prompt pattern: analyze ONLY the
 provided data, no outside knowledge, temperature=0.
 
+CHAINED AGENTS: Each report automatically reads the previous report's output
+so each agent builds on the findings of the prior step. The first agent also
+checks for the latest nastran utility simulation report if available.
+
 Usage:
     python pipeline/generate_pipeline_report.py --report-type fem_health --data-file <path> --output-dir <path>
     python pipeline/generate_pipeline_report.py --report-type db_health --db-path <path> --output-dir <path>
 
 Report types:
-    1. fem_health        — Pre-run FEM health check (reads DAT file)
-    2. study_plan        — Study plan summary (reads config + .heeds file)
-    3. heeds_status      — HEEDS run status (reads study log + design count)
-    4. db_health         — Database health (queries SQLite)
-    5. feature_matrix    — Feature matrix report (reads training_matrix.npz stats)
-    6. classification    — Classification results (reads classification_report.txt)
+    1. fem_health        — Pre-run FEM health check (reads DAT file + latest nastran utility report)
+    2. study_plan        — Study plan summary (reads config + .heeds file + Report 1)
+    3. heeds_status      — HEEDS run status (reads study log + Report 2)
+    4. db_health         — Database health (queries SQLite + CBUSH forces + Report 3)
+    5. feature_matrix    — Feature matrix report (reads training_matrix.npz + Report 4)
+    6. classification    — Classification results (reads classification_report.txt + Report 5)
     7. executive_summary — Pipeline executive summary (reads all prior reports)
 
 Requires:
@@ -26,6 +30,7 @@ import sys
 import os
 import argparse
 import json
+import glob as globmod
 from datetime import datetime
 
 
@@ -34,97 +39,221 @@ SYSTEM_PROMPT = (
     "provided to you in this message. Do not use any outside knowledge about "
     "Nastran, spacecraft, structural analysis, or machine learning. If the data "
     "does not support a conclusion, say so explicitly. Never invent numbers, "
-    "results, or conclusions not present in the provided data."
+    "results, or conclusions not present in the provided data.\n\n"
+    "FORMATTING RULES:\n"
+    "- Use ## for section headings (never ### or deeper)\n"
+    "- Use bullet lists and tables for data presentation\n"
+    "- Bold key findings and verdicts\n"
+    "- Keep engineering language precise and grounded in the data"
 )
+
+# Report ordering for chaining — maps each report to the one before it
+REPORT_ORDER = [
+    "fem_health",       # 01 — no prior report, but checks nastran utility report
+    "study_plan",       # 02 — reads 01
+    "heeds_status",     # 03 — reads 02
+    "db_health",        # 04 — reads 03
+    "feature_matrix",   # 05 — reads 04
+    "classification",   # 06 — reads 05
+    "executive_summary",  # 07 — reads all 01-06
+]
 
 REPORT_CONFIGS = {
     "fem_health": {
         "title": "Pre-Run FEM Health Check",
         "filename": "01_fem_health.md",
         "prompt": (
-            "Analyze this Nastran FEM input deck and produce a health check report:\n"
-            "1. Model overview — solution type, element count, node count\n"
-            "2. CBUSH bolt elements — count, property IDs, stiffness values\n"
-            "3. Boundary conditions — SPC cards, constraints\n"
-            "4. Include files referenced\n"
-            "5. Any potential issues or missing cards\n"
-            "6. Health verdict — is this FEM ready to run?\n\n"
+            "Analyze this Nastran FEM input deck and produce a health check report.\n\n"
+            "Use ## headings for each section (never ### or deeper).\n\n"
+            "## Model Overview\n"
+            "- Solution type (SOL card), element count by type, node count\n"
+            "- Subcases defined and their load/BC references\n\n"
+            "## CBUSH Bolt Elements — Detailed Analysis\n"
+            "- Total CBUSH element count and their element IDs\n"
+            "- PBUSH property cards — list each PID with K1-K6 stiffness values\n"
+            "- Which CBUSH elements connect which grids (GA, GB)\n"
+            "- Coordinate systems referenced (CID, OCID)\n"
+            "- Flag any CBUSH with zero or missing stiffness components\n\n"
+            "## Boundary Conditions\n"
+            "- SPC cards — which grids, which DOFs constrained\n"
+            "- SPC sets referenced by subcases\n\n"
+            "## Include Files\n"
+            "- All INCLUDE cards and referenced filenames\n\n"
+            "## Potential Issues\n"
+            "- Missing cards, orphan references, suspicious values\n"
+            "- Any CBUSH elements with incomplete property definitions\n\n"
+            "## Health Verdict\n"
+            "- Is this FEM ready to run? Summarize pass/fail items.\n\n"
+            "If a previous nastran utility simulation report is provided below, "
+            "reference its findings (modal results, warnings, CBUSH forces) to "
+            "inform your assessment of whether this FEM configuration is sound.\n\n"
         ),
     },
     "study_plan": {
         "title": "Study Plan Summary",
         "filename": "02_study_plan.md",
         "prompt": (
-            "Analyze this study configuration and HEEDS project file. Produce a study plan summary:\n"
-            "1. Study name and type\n"
-            "2. Design variables — which bolts are being swept, stiffness range\n"
-            "3. Number of expected designs\n"
-            "4. Response variables being tracked\n"
-            "5. Solver chain — what Nastran runs are configured\n"
-            "6. Assessment — is this study plan well-configured?\n\n"
+            "Analyze this study configuration and HEEDS project file. Produce a study plan summary.\n\n"
+            "Use ## headings for each section (never ### or deeper).\n\n"
+            "## Study Overview\n"
+            "- Study name, type, and objective\n\n"
+            "## Design Variables\n"
+            "- Which bolt CBUSH elements are being swept\n"
+            "- Stiffness range (min, max, number of levels)\n"
+            "- How the sweep maps to physical bolt looseness states\n\n"
+            "## Expected Designs\n"
+            "- Total design count and how it was computed\n\n"
+            "## Response Variables\n"
+            "- What outputs are being tracked (accelerations, forces, etc.)\n\n"
+            "## Solver Chain\n"
+            "- Nastran solution sequence and post-processing steps\n\n"
+            "## Assessment\n"
+            "- Is the study plan well-configured? Any gaps?\n\n"
+            "IMPORTANT: A previous pipeline report (FEM Health Check) is included below. "
+            "Reference its findings — if it flagged CBUSH issues or missing cards, note "
+            "whether the study plan accounts for them.\n\n"
         ),
     },
     "heeds_status": {
         "title": "HEEDS Run Status Report",
         "filename": "03_heeds_status.md",
         "prompt": (
-            "Analyze this HEEDS study run data and produce a status report:\n"
-            "1. Designs completed vs expected\n"
-            "2. Per-design verification — which have PCH and CSV files\n"
-            "3. Timing — total elapsed, per-design average\n"
-            "4. Any failures or warnings from the study log\n"
-            "5. Assessment — did the study complete successfully?\n\n"
+            "Analyze this HEEDS study run data and produce a status report.\n\n"
+            "Use ## headings for each section (never ### or deeper).\n\n"
+            "## Completion Status\n"
+            "- Designs completed vs expected\n"
+            "- Per-design verification — which have PCH and CSV output files\n\n"
+            "## Timing Analysis\n"
+            "- Total elapsed time\n"
+            "- Per-design average runtime\n"
+            "- Any designs that took unusually long\n\n"
+            "## Warnings and Failures\n"
+            "- Any failures or warnings from the study log\n"
+            "- Nastran fatal/warning messages if present\n\n"
+            "## Assessment\n"
+            "- Did the study complete successfully?\n"
+            "- Is the data ready for database import?\n\n"
+            "IMPORTANT: A previous pipeline report (Study Plan Summary) is included below. "
+            "Cross-reference: does the completed design count match what was planned? "
+            "Were the expected response variables actually generated?\n\n"
         ),
     },
     "db_health": {
         "title": "Database Health Report",
         "filename": "04_db_health.md",
         "prompt": (
-            "Analyze this database health data and produce a report:\n"
-            "1. Table row counts and database size\n"
-            "2. Study and case summary\n"
-            "3. PSD data coverage — rows per case, any gaps\n"
-            "4. Parameter distribution — stiffness values across cases\n"
-            "5. Baseline status — is baseline case present\n"
-            "6. Assessment — is the database healthy and complete?\n\n"
+            "Analyze this database health data and produce a report.\n\n"
+            "Use ## headings for each section (never ### or deeper).\n\n"
+            "## Database Overview\n"
+            "- Table row counts and database file size\n\n"
+            "## Study and Case Summary\n"
+            "- Study metadata and case listing\n\n"
+            "## PSD Data Coverage\n"
+            "- Rows per case, any gaps or missing cases\n"
+            "- Frequency range and point count consistency\n\n"
+            "## CBUSH Force Data\n"
+            "- If CBUSH element force data is present, summarize:\n"
+            "  - Which element IDs have force data\n"
+            "  - Force components available (axial, shear, moment)\n"
+            "  - Baseline vs swept case force comparison\n"
+            "  - Amplification ratios (swept / baseline) for key force components\n\n"
+            "## Parameter Distribution\n"
+            "- K4 stiffness values across cases\n"
+            "- Stiffness sweep range and step pattern\n\n"
+            "## Baseline Status\n"
+            "- Is baseline case present and complete?\n\n"
+            "## Assessment\n"
+            "- Is the database healthy and complete?\n"
+            "- Data quality rating\n\n"
+            "IMPORTANT: A previous pipeline report (HEEDS Run Status) is included below. "
+            "Cross-reference: does the database case count match the verified design count "
+            "from the HEEDS run? Any designs that completed but failed to import?\n\n"
         ),
     },
     "feature_matrix": {
         "title": "Feature Matrix Report",
         "filename": "05_feature_matrix.md",
         "prompt": (
-            "Analyze this feature extraction data and produce a report:\n"
-            "1. Matrix dimensions — samples, features\n"
-            "2. Feature types — peak features, spectral features, delta features\n"
-            "3. Label distribution — how many samples per class\n"
-            "4. Any NaN or infinite values\n"
-            "5. Feature statistics — mean, std, min, max ranges\n"
-            "6. Assessment — is this feature matrix ready for ML training?\n\n"
+            "Analyze this feature extraction data and produce a report.\n\n"
+            "Use ## headings for each section (never ### or deeper).\n\n"
+            "## Matrix Dimensions\n"
+            "- Samples count, feature count\n"
+            "- Samples-to-features ratio (is there enough data?)\n\n"
+            "## Feature Types\n"
+            "- Peak features — which response quantities\n"
+            "- Spectral features — frequency-domain characteristics\n"
+            "- Delta features — changes from baseline\n"
+            "- CBUSH-related features if present\n\n"
+            "## Label Distribution\n"
+            "- Samples per class\n"
+            "- Class balance assessment\n\n"
+            "## Data Quality\n"
+            "- NaN or infinite values\n"
+            "- Feature statistics — mean, std, min, max ranges\n"
+            "- Any features with zero variance (uninformative)\n\n"
+            "## Assessment\n"
+            "- Is this feature matrix ready for ML training?\n"
+            "- Recommendations for feature engineering\n\n"
+            "IMPORTANT: A previous pipeline report (Database Health) is included below. "
+            "Cross-reference: does the sample count match the database case count? "
+            "If the DB report noted any data gaps, are they reflected in the features?\n\n"
         ),
     },
     "classification": {
         "title": "Classification Report",
         "filename": "06_classification.md",
         "prompt": (
-            "Analyze this ML classification data and produce a report:\n"
-            "1. Model type and parameters\n"
-            "2. Accuracy, precision, recall, F1 per class\n"
-            "3. Confusion matrix interpretation\n"
-            "4. Top important features — what physical meaning do they suggest\n"
-            "5. Cross-validation results if present\n"
-            "6. Assessment — is this classifier reliable? What would improve it?\n\n"
+            "Analyze this ML classification data and produce a report.\n\n"
+            "Use ## headings for each section (never ### or deeper).\n\n"
+            "## Model Summary\n"
+            "- Model type and key hyperparameters\n\n"
+            "## Performance Metrics\n"
+            "- Accuracy, precision, recall, F1 per class\n"
+            "- Overall accuracy and macro/weighted averages\n\n"
+            "## Confusion Matrix\n"
+            "- Interpret the confusion matrix — which classes are confused\n"
+            "- False positive / false negative analysis\n\n"
+            "## Feature Importance\n"
+            "- Top 10 most important features\n"
+            "- Physical interpretation — what do the top features represent\n"
+            "- Are CBUSH-related features among the top predictors?\n\n"
+            "## Cross-Validation\n"
+            "- CV results if present, stability across folds\n\n"
+            "## Assessment\n"
+            "- Is this classifier reliable for bolt looseness detection?\n"
+            "- What would improve performance (more data, features, tuning)?\n\n"
+            "IMPORTANT: A previous pipeline report (Feature Matrix) is included below. "
+            "Cross-reference: were there data quality issues in the features that may "
+            "explain classification performance? Is class imbalance affecting results?\n\n"
         ),
     },
     "executive_summary": {
         "title": "Pipeline Executive Summary",
         "filename": "07_executive_summary.md",
         "prompt": (
-            "Analyze the previous pipeline stage reports and produce an executive summary:\n"
-            "1. Overall pipeline status — which stages passed/failed\n"
-            "2. Key findings from each stage\n"
-            "3. Data quality assessment — FEM, database, features, classifier\n"
-            "4. Recommendations — what should be done next\n"
-            "5. Confidence assessment — how trustworthy are the results\n\n"
+            "Analyze all previous pipeline stage reports and produce an executive summary.\n\n"
+            "Use ## headings for each section (never ### or deeper).\n\n"
+            "## Pipeline Status Overview\n"
+            "- Which stages completed successfully, which had issues\n"
+            "- Overall pipeline health: PASS / PARTIAL / FAIL\n\n"
+            "## Key Findings Chain\n"
+            "For each stage, extract the single most important finding and show how "
+            "it flows into the next stage:\n"
+            "- FEM Health -> Study Plan -> HEEDS Run -> Database -> Features -> Classifier\n\n"
+            "## CBUSH Bolt Looseness Detection — End-to-End Assessment\n"
+            "- From FEM bolt configuration through ML classification\n"
+            "- Amplification ratios observed (if reported in DB health)\n"
+            "- Classifier ability to distinguish looseness states\n\n"
+            "## Data Quality Assessment\n"
+            "- FEM model quality\n"
+            "- Database completeness\n"
+            "- Feature matrix readiness\n"
+            "- Classifier reliability\n\n"
+            "## Recommendations\n"
+            "- What should be done next\n"
+            "- Priority items for improving the pipeline\n\n"
+            "## Confidence Assessment\n"
+            "- How trustworthy are the end-to-end results?\n\n"
         ),
     },
 }
@@ -154,10 +283,71 @@ def call_anthropic(system_prompt, user_prompt):
     return message.content[0].text
 
 
+def find_latest_nastran_utility_report():
+    """Find the most recent simulation_report.md from FEM_Utility runs."""
+    fem_utility_base = os.path.join(
+        os.environ.get('USERPROFILE', r'C:\Users\waynelee'),
+        'Documents', 'FEM_Utility'
+    )
+    if not os.path.exists(fem_utility_base):
+        return None
+
+    # Find all simulation_report.md files across timestamped run folders
+    report_files = globmod.glob(
+        os.path.join(fem_utility_base, '*', 'simulation_report.md')
+    )
+    if not report_files:
+        return None
+
+    # Return the most recently modified one
+    latest = max(report_files, key=os.path.getmtime)
+    return latest
+
+
+def get_previous_report(output_dir, report_type):
+    """Read the previous stage's report from output_dir for chaining.
+
+    Each agent reads the report from the step before it to build context.
+    """
+    idx = REPORT_ORDER.index(report_type) if report_type in REPORT_ORDER else -1
+    if idx <= 0:
+        return None  # fem_health has no prior report (uses nastran utility instead)
+
+    prev_type = REPORT_ORDER[idx - 1]
+    prev_cfg = REPORT_CONFIGS[prev_type]
+    prev_path = os.path.join(output_dir, prev_cfg["filename"])
+
+    if os.path.exists(prev_path):
+        with open(prev_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        print(f"Chained context: reading previous report {prev_cfg['filename']}")
+        return f"=== Previous Pipeline Report: {prev_cfg['title']} ===\n{content}"
+
+    print(f"Note: previous report {prev_cfg['filename']} not found (skipping chain)")
+    return None
+
+
 def gather_data_fem_health(data_file):
-    """Read DAT file for FEM health check."""
+    """Read DAT file for FEM health check + latest nastran utility report."""
+    parts = []
     with open(data_file, "r", errors="ignore") as f:
-        return f.read()[:60000]
+        parts.append("=== FEM Input Deck ===\n" + f.read()[:60000])
+
+    # Check for latest nastran utility simulation report
+    nastran_report = find_latest_nastran_utility_report()
+    if nastran_report:
+        mtime = datetime.fromtimestamp(os.path.getmtime(nastran_report))
+        print(f"Found nastran utility report: {nastran_report} (modified: {mtime})")
+        with open(nastran_report, "r", encoding="utf-8") as f:
+            report_content = f.read()[:20000]
+        parts.append(
+            f"=== Latest Nastran Utility Report (from {mtime.strftime('%Y-%m-%d %H:%M')}) ===\n"
+            + report_content
+        )
+    else:
+        print("No previous nastran utility report found (skipping)")
+
+    return "\n\n".join(parts)
 
 
 def gather_data_study_plan(data_file, config_file=None):
@@ -184,7 +374,7 @@ def gather_data_heeds_status(data_file):
 
 
 def gather_data_db_health(db_path):
-    """Query database for health stats."""
+    """Query database for health stats including CBUSH force data."""
     import sqlite3
 
     if not os.path.exists(db_path):
@@ -239,6 +429,54 @@ def gather_data_db_health(db_path):
     except Exception:
         pass
 
+    # CBUSH element force data — check peaks table for CBUSH-related entries
+    try:
+        cursor.execute(
+            "SELECT c.case_name, c.case_number, c.is_baseline, "
+            "pk.element_id, pk.response_type, pk.peak_value, pk.frequency_hz "
+            "FROM peaks pk JOIN cases c ON pk.case_id = c.case_id "
+            "WHERE pk.element_id IS NOT NULL "
+            "ORDER BY c.case_number, pk.element_id"
+        )
+        force_rows = cursor.fetchall()
+        if force_rows:
+            lines.append("\nCBUSH element force/response peaks:")
+            for row in force_rows[:100]:  # Cap at 100 rows
+                bl = " [BASELINE]" if row[2] else ""
+                lines.append(
+                    f"  Case {row[1]} ({row[0]}){bl}: elem {row[3]}, "
+                    f"{row[4]} = {row[5]:.6e} @ {row[6]:.2f} Hz"
+                )
+            if len(force_rows) > 100:
+                lines.append(f"  ... and {len(force_rows) - 100} more rows")
+
+            # Compute amplification ratios: swept / baseline for matching elements
+            baseline_forces = {}
+            swept_forces = {}
+            for row in force_rows:
+                key = (row[3], row[4])  # (element_id, response_type)
+                if row[2]:  # is_baseline
+                    baseline_forces[key] = row[5]
+                else:
+                    if key not in swept_forces:
+                        swept_forces[key] = []
+                    swept_forces[key].append((row[0], row[5]))
+
+            if baseline_forces and swept_forces:
+                lines.append("\nAmplification ratios (swept / baseline):")
+                for key in sorted(baseline_forces.keys()):
+                    if key in swept_forces:
+                        base_val = baseline_forces[key]
+                        if abs(base_val) > 1e-20:
+                            for case_name, swept_val in swept_forces[key][:10]:
+                                ratio = swept_val / base_val
+                                lines.append(
+                                    f"  elem {key[0]}, {key[1]}: "
+                                    f"{case_name} = {ratio:.3f}x baseline"
+                                )
+    except Exception:
+        pass
+
     conn.close()
     return "\n".join(lines)
 
@@ -265,6 +503,12 @@ def gather_data_feature_matrix(data_file):
         lines.append(f"X std: {np.nanstd(X):.6e}")
         lines.append(f"X min: {np.nanmin(X):.6e}")
         lines.append(f"X max: {np.nanmax(X):.6e}")
+
+        # Per-feature zero-variance check
+        stds = np.nanstd(X, axis=0)
+        zero_var = np.sum(stds < 1e-15)
+        if zero_var > 0:
+            lines.append(f"Zero-variance features: {zero_var}")
 
     if "y" in data:
         y = data["y"]
@@ -307,15 +551,33 @@ def gather_data_executive_summary(output_dir):
 
 
 def write_report(output_dir, report_type, content):
-    """Write report markdown file."""
+    """Write report markdown file with ## headings enforced."""
     cfg = REPORT_CONFIGS[report_type]
     output_path = os.path.join(output_dir, cfg["filename"])
+
+    # Post-process: fix any ### headings the LLM may have generated
+    lines = content.split('\n')
+    fixed_lines = []
+    for line in lines:
+        # Convert ### to ## (but leave #### alone — tables sometimes use them)
+        if line.startswith('### ') and not line.startswith('#### '):
+            line = '## ' + line[4:]
+        fixed_lines.append(line)
+    content = '\n'.join(fixed_lines)
+
+    # Determine chain position
+    idx = REPORT_ORDER.index(report_type) if report_type in REPORT_ORDER else -1
+    chain_info = f"**Pipeline Position:** Report {idx + 1} of {len(REPORT_ORDER)}"
+    if idx > 0:
+        prev = REPORT_CONFIGS[REPORT_ORDER[idx - 1]]["title"]
+        chain_info += f" (builds on: {prev})"
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(f"# {cfg['title']}\n\n")
         f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  \n")
         f.write(f"**Report Type:** {report_type}  \n")
-        f.write("**Generator:** Claude (Anthropic API, temperature=0)  \n\n")
+        f.write("**Generator:** Claude (Anthropic API, temperature=0)  \n")
+        f.write(f"{chain_info}  \n\n")
         f.write("---\n\n")
         f.write(content)
         f.write("\n")
@@ -362,6 +624,12 @@ def main():
 
     if args.extra_data:
         data += "\n\n=== Additional Context ===\n" + args.extra_data
+
+    # Chain: append previous report for context (except executive_summary which reads all)
+    if report_type != "executive_summary":
+        prev_report = get_previous_report(args.output_dir, report_type)
+        if prev_report:
+            data += "\n\n" + prev_report
 
     # Build prompt
     user_prompt = cfg["prompt"] + "--- BEGIN DATA ---\n" + data + "\n--- END DATA ---"
