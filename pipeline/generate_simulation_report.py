@@ -1435,9 +1435,9 @@ def write_docx_report(output_path, report_text, f06_filename, images, run_folder
             continue
 
         # Section headers
-        if stripped.startswith('## ') or stripped.startswith('# '):
+        if stripped.startswith('#'):
             heading_text = stripped.lstrip('#').strip()
-            level = 2 if stripped.startswith('## ') else 1
+            level = len(stripped) - len(stripped.lstrip('#'))  # count '#' chars
             doc.add_heading(heading_text, level=min(level + 1, 4))
 
         # Bold subheadings like **From fixed_base_beam.f06:**
