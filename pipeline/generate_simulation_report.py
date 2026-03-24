@@ -102,10 +102,42 @@ def extract_f06_summary(f06_path, max_chars=80000):
     return combined[:max_chars]
 
 
+def extract_pch_summary(run_folder, max_chars=20000):
+    """Extract PCH punch file header lines ($ACCE / $DISP) for peak PSD data.
+
+    Each header line contains: output type, subcase, node, component,
+    peak PSD value, frequency of peak, and the starting line in the file.
+    This is enough for the LLM to build peak response tables without
+    sending the full (often multi-MB) punch file.
+    """
+    pch_files = globmod.glob(os.path.join(run_folder, '*.pch')) + \
+                globmod.glob(os.path.join(run_folder, '*.PCH'))
+    if not pch_files:
+        return ""
+
+    parts = []
+    for pch_path in pch_files:
+        fname = os.path.basename(pch_path)
+        headers = []
+        try:
+            with open(pch_path, 'r', errors='ignore') as f:
+                for line in f:
+                    if line.startswith('$'):
+                        headers.append(line.rstrip())
+        except Exception:
+            continue
+        if headers:
+            parts.append(f"=== {fname} (punch header lines) ===\n" + '\n'.join(headers))
+            print(f"  Reading punch headers: {fname} ({len(headers)} records)")
+
+    combined = '\n\n'.join(parts)
+    return combined[:max_chars]
+
+
 # ---------------------------------------------------------------------------
 # LLM Report Generation
 # ---------------------------------------------------------------------------
-def generate_report(f06_content, f06_filename, model_input_content=""):
+def generate_report(f06_content, f06_filename, model_input_content="", pch_content=""):
     """Call Anthropic API to generate simulation report."""
     try:
         import anthropic
@@ -132,12 +164,20 @@ def generate_report(f06_content, f06_filename, model_input_content=""):
         "Use clear section headers with ## markdown syntax."
     )
 
-    model_input_block = ""
+    extra_data_block = ""
     if model_input_content:
-        model_input_block = (
+        extra_data_block += (
             "\n\n--- BEGIN MODEL INPUT FILES (DAT + CBUSH properties) ---\n"
             f"{model_input_content}\n"
             "--- END MODEL INPUT FILES ---\n"
+        )
+    if pch_content:
+        extra_data_block += (
+            "\n\n--- BEGIN PUNCH FILE HEADERS (peak PSD values per node/component) ---\n"
+            "Format: $TYPE  SUBCASE  NODE  COMPONENT  PEAK_PSD_VALUE  FREQ_OF_PEAK\n"
+            "  $ACCE = acceleration PSD, $DISP = displacement PSD\n"
+            f"{pch_content}\n"
+            "--- END PUNCH FILE HEADERS ---\n"
         )
 
     user_prompt = (
@@ -176,6 +216,7 @@ def generate_report(f06_content, f06_filename, model_input_content=""):
         "--- BEGIN F06 CONTENT ---\n"
         f"{f06_content}\n"
         "--- END F06 CONTENT ---"
+        f"{extra_data_block}"
     )
 
     print("Calling Anthropic API (model: claude-sonnet-4-20250514)...")
@@ -1588,8 +1629,11 @@ def main():
                     pass
         model_input_content = '\n\n'.join(model_input_parts)
 
+        # Read punch file headers for peak PSD acceleration/displacement data
+        pch_content = extract_pch_summary(run_folder)
+
         report_text = generate_report(combined_content, combined_filename,
-                                       model_input_content)
+                                       model_input_content, pch_content)
 
     # Write DOCX report
     if use_docx:
