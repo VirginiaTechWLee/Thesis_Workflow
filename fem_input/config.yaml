@@ -90,7 +90,7 @@ database:
 
 # --- Pipeline Options -------------------------------------------------------
 pipeline:
-  llm_reports: false              # generate LLM reports at each pipeline stage
+  llm_reports: true               # generate LLM reports at each pipeline stage
 
 # --- Analysis Type (for Nastran Utility Workflow) --------------------------
 # sol103  = SOL 103 modal only (generates DBALL)
