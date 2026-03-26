@@ -589,3 +589,33 @@ Implementing Task 2 from TASK_PLAN.md — 7 LLM reports embedded in the super wo
 - [x] End-to-end test: RUN 23453302986 — ALL GREEN in 51s
   - Checkout, Validate, Nastran, Install deps, Screenshots, Report, Cleanup, Summary — all passed
 - **STATUS: COMPLETE** — Task 4 fully implemented and validated end-to-end
+
+### 2026-03-26 — Study A: Single Bolt Sweep (73 designs, 9 bolts × 8 non-baseline levels + baseline)
+
+**Goal:** Run the full parametric sweep — every bolt (2–10) at every stiffness level (1e4–1e12).
+
+**Issue 1 — Bush.blk format (FIXED):**
+The Bush.blk inside `bolt_sweep_9bolts_9levels/` had bad Nastran formatting (left-justified fields, no Femap comment lines). All designs crashed with `FATAL MESSAGE 315 — FORMAT ERROR ON BULK DATA ENTRY PBUSH`.
+
+**Fix:** Regenerated Bush.blk using `generate_baseline_bush.py` (Femap format: comment + right-justified PBUSH lines). Regenerated `.heeds` file with correct row indices (bolt N at row `2*N-1` instead of `N-1`). Copied to HEEDS working dir.
+
+**Issue 2 — No PCH files (FIXED):**
+`FBM_TO_DBALL.bat` uses `timeout /t 10` to wait between Nastran runs. When HEEDS was launched from bash, Git Bash's `timeout` command was invoked instead of Windows' `timeout.exe`, causing the wait to fail. Without the 10s wait, Nastran starts `randombeamx.dat` before `fixed_base_beam` has fully written its DBALL file.
+
+**Fix:** Replaced `timeout /t 10 /nobreak >nul` with `ping -n 11 127.0.0.1 >nul` — cross-shell compatible 10-second wait.
+
+**Final result:** 73/73 designs completed with full output:
+- `randombeamx.pch` (PSD response data) — 73/73
+- `acceleration_results.csv` + `displacement_results.csv` — 73/73
+- `Response_Array.heeds.out` (10 modal frequencies) — 73/73
+- `Modes1-10.heeds.out` — 73/73
+
+**Elapsed:** ~27 minutes (10s ping wait per design).
+**Results:** `C:\Users\waynelee\Documents\study_A_single_bolt_sweep_Study_1\POST_0\`
+**Database import:** 73/73 designs imported locally via `batch_import_to_database.py --reset_study`.
+- Study ID: 2 (`study_A_single_bolt_sweep`)
+- 73 cases, 730 parameters, 2,104,380 PSD records, 7,884 peaks
+- DB size: 234 MB (at `D:\thesis_database\thesis_results.db`)
+- bolt3_sweep data (Study ID 1) preserved alongside
+
+**Status: COMPLETE** — Study A results in database. Done locally (not via workflow).

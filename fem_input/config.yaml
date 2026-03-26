@@ -8,12 +8,12 @@
 
 # --- Study Metadata --------------------------------------------------------
 study:
-  name: bolt3_sweep
-  description: "Bolt 3 single-variable sweep (5 designs)"
-  type: sweep            # sweep | doe | monte_carlo
-  sweep_bolts: [3]       # which bolt(s) to sweep
-  sweep_levels: [1.0e6, 1.0e7, 1.0e8, 1.0e10, 1.0e12]  # stiffness levels for UDS
-  expected_designs: 5    # total designs in the sweep
+  name: study_A_single_bolt_sweep
+  description: "Study A: single-bolt sweep, 9 bolts x 9 stiffness levels (73 designs)"
+  type: single_bolt_sweep   # sweep | single_bolt_sweep | doe | monte_carlo
+  sweep_bolts: [2, 3, 4, 5, 6, 7, 8, 9, 10]   # all variable bolts
+  sweep_levels: [1.0e4, 1.0e5, 1.0e6, 1.0e7, 1.0e8, 1.0e9, 1.0e10, 1.0e11, 1.0e12]
+  expected_designs: 81   # 9 bolts x 9 levels = 81
 
 # --- FEM Model Files -------------------------------------------------------
 files:

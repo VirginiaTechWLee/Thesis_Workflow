@@ -38,7 +38,7 @@ def generate_bat(config_path=None, output_path='FBM_TO_DBALL.bat'):
         '    exit /b 1\r\n'
         ')\r\n'
         'echo Waiting for 10 seconds before proceeding to the next command...\r\n'
-        'timeout /t 10 /nobreak >nul\r\n'
+        'ping -n 11 127.0.0.1 >nul\r\n'
         f'"{nastran}" {random_resp}\r\n'
         'IF ERRORLEVEL 1 (\r\n'
         '    echo The second Nastran command failed. Exiting.\r\n'

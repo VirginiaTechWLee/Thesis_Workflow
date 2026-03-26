@@ -44,6 +44,7 @@ def generate_heeds_project(config_path=None, output_path=None):
         files=files,
         paths=paths,
         bolts=bolts,
+        study=study,
     )
 
     with open(output_path, 'w', encoding='utf-8') as f:
@@ -58,7 +59,7 @@ def generate_heeds_project(config_path=None, output_path=None):
 
 
 def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
-               files, paths, bolts):
+               files, paths, bolts, study=None):
     """Build the complete HEEDS XML string."""
 
     structural_model = files['structural_model']
@@ -122,24 +123,49 @@ def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
         agent_resp_lines.append(f'      <Response name="Modes{i}" ref="HEEDS.Parameter.Response.Modes{i}" state="Included"/>')
     agent_resp_xml = '\n'.join(agent_resp_lines)
 
-    # --- UserDesignSet: design names ---
+    # --- UserDesignSet: design names and CDATA rows ---
+    study_type = study.get('type', 'sweep') if study else 'sweep'
+    num_levels = len(sweep_levels)
+    baseline_idx = num_levels  # 1-based index of tight/baseline value
+
     design_name_lines = []
-    for level in sweep_levels:
-        exp_str = f"{level:.0e}"
-        e_part = exp_str.split('e+')[1] if 'e+' in exp_str else exp_str.split('e')[1]
-        bolt_str = '_'.join(str(b) for b in sweep_bolts)
-        name = f"bolt{bolt_str}_1e{int(e_part)}"
-        design_name_lines.append(f'        <Design name="{name}" map="false" resp="false"/>')
+    data_rows = []
+
+    if study_type == 'single_bolt_sweep':
+        # Single-bolt sweep: loosen ONE bolt at a time, rest at baseline
+        for bolt in sweep_bolts:
+            for level_i, level in enumerate(sweep_levels):
+                set_idx = level_i + 1
+                exp_str = f"{level:.0e}"
+                e_part = exp_str.split('e+')[1] if 'e+' in exp_str else exp_str.split('e')[1]
+                name = f"bolt{bolt}_1e{int(e_part)}"
+                design_name_lines.append(f'        <Design name="{name}" map="false" resp="false"/>')
+
+                # Build row: this bolt at set_idx, all others at baseline_idx
+                row_vals = []
+                for var in variables:
+                    # var is like "K4_bolt2" — extract bolt number
+                    var_bolt = int(var.split('bolt')[1])
+                    if var_bolt == bolt:
+                        row_vals.append(f'    {set_idx}')
+                    else:
+                        row_vals.append(f'    {baseline_idx}')
+                data_rows.append(','.join(row_vals))
+    else:
+        # Default sweep: all bolts get the same level simultaneously
+        for level_i, level in enumerate(sweep_levels):
+            set_idx = level_i + 1
+            exp_str = f"{level:.0e}"
+            e_part = exp_str.split('e+')[1] if 'e+' in exp_str else exp_str.split('e')[1]
+            bolt_str = '_'.join(str(b) for b in sweep_bolts)
+            name = f"bolt{bolt_str}_1e{int(e_part)}"
+            design_name_lines.append(f'        <Design name="{name}" map="false" resp="false"/>')
+            data_rows.append(','.join([f'    {set_idx}'] * len(variables)))
+
     design_names_xml = '\n'.join(design_name_lines)
 
-    # --- UserDesignSet: CDATA with index rows ---
     header_parts = variables + ['Response_Array'] + [f'Modes{i}' for i in range(1, 11)]
     data_header = ', '.join(header_parts)
-    data_rows = []
-    for i in range(len(sweep_levels)):
-        idx = i + 1
-        vals = ','.join([f'    {idx}'] * len(variables))
-        data_rows.append(vals)
     data_block = '\n'.join(data_rows)
 
     # --- Command for postAnalysis (HEEDS Python runs Pch_TO_CSV2.py) ---
