@@ -65,6 +65,17 @@ REPORT_CONFIGS = {
         "prompt": (
             "Analyze this Nastran FEM input deck and produce a health check report.\n\n"
             "Use ## headings for each section (never ### or deeper).\n\n"
+            "## Expected Input Files\n"
+            "This is a CBUSH bolt looseness parametric study. The following files are "
+            "REQUIRED for the pipeline to function. For each file listed in the "
+            "'Expected files' data section below, report whether it was FOUND or MISSING. "
+            "Explain the role of each file:\n"
+            "- Structural model (.dat) — main Nastran input deck (SOL 103 modal analysis)\n"
+            "- Random response deck (.dat) — SOL 111 frequency response input\n"
+            "- Bush template (.blk) — CBUSH/PBUSH property definitions (INCLUDE'd by the DAT). "
+            "This is the file that HEEDS modifies per design to sweep bolt stiffness.\n"
+            "- Recoveries (.blk) — XYPUNCH output recovery directives\n"
+            "Flag any missing files as CRITICAL — the study cannot proceed without them.\n\n"
             "## Model Overview\n"
             "- Solution type (SOL card), element count by type, node count\n"
             "- Subcases defined and their load/BC references\n\n"
@@ -78,7 +89,8 @@ REPORT_CONFIGS = {
             "- SPC cards — which grids, which DOFs constrained\n"
             "- SPC sets referenced by subcases\n\n"
             "## Include Files\n"
-            "- All INCLUDE cards and referenced filenames\n\n"
+            "- All INCLUDE cards and referenced filenames\n"
+            "- Cross-reference: do the INCLUDE filenames match the expected files above?\n\n"
             "## Potential Issues\n"
             "- Missing cards, orphan references, suspicious values\n"
             "- Any CBUSH elements with incomplete property definitions\n\n"
@@ -150,7 +162,12 @@ REPORT_CONFIGS = {
             "- Study metadata and case listing\n\n"
             "## PSD Data Coverage\n"
             "- Rows per case, any gaps or missing cases\n"
-            "- Frequency range and point count consistency\n\n"
+            "- Frequency range and point count consistency\n"
+            "- NOTE: Small variations in PSD row counts between designs are normal — "
+            "Nastran SOL 111 adaptively inserts extra frequency points near resonance "
+            "peaks, so designs with different stiffness values (and therefore shifted "
+            "resonances) may have slightly different frequency grids. Only flag row "
+            "count differences as a problem if they exceed ~10% of the row count.\n\n"
             "## CBUSH Force Data\n"
             "- If CBUSH element force data is present, summarize:\n"
             "  - Which element IDs have force data\n"
@@ -259,8 +276,10 @@ REPORT_CONFIGS = {
 }
 
 
-def call_anthropic(system_prompt, user_prompt):
-    """Call Anthropic API with grounded prompt."""
+def call_anthropic(system_prompt, user_prompt, max_retries=3):
+    """Call Anthropic API with grounded prompt and retry logic."""
+    import time
+
     try:
         import anthropic
     except ImportError:
@@ -273,14 +292,44 @@ def call_anthropic(system_prompt, user_prompt):
         sys.exit(1)
 
     client = anthropic.Anthropic(api_key=api_key)
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4096,
-        temperature=0,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-    return message.content[0].text
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            message = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=4096,
+                temperature=0,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            return message.content[0].text
+        except anthropic.RateLimitError as e:
+            print(f"RETRY {attempt}/{max_retries}: Rate limited — {e}")
+            if attempt < max_retries:
+                wait = 2 ** attempt * 5
+                print(f"Waiting {wait}s before retry...")
+                time.sleep(wait)
+        except anthropic.APIStatusError as e:
+            print(f"RETRY {attempt}/{max_retries}: API error {e.status_code} — {e.message}")
+            if attempt < max_retries and e.status_code >= 500:
+                wait = 2 ** attempt * 5
+                print(f"Waiting {wait}s before retry...")
+                time.sleep(wait)
+            else:
+                print(f"FATAL: Non-retryable API error: {e}")
+                sys.exit(1)
+        except anthropic.APIConnectionError as e:
+            print(f"RETRY {attempt}/{max_retries}: Connection error — {e}")
+            if attempt < max_retries:
+                wait = 2 ** attempt * 5
+                print(f"Waiting {wait}s before retry...")
+                time.sleep(wait)
+        except Exception as e:
+            print(f"FATAL: Unexpected error calling Anthropic API: {type(e).__name__}: {e}")
+            sys.exit(1)
+
+    print(f"FATAL: All {max_retries} API attempts failed")
+    sys.exit(1)
 
 
 def find_latest_nastran_utility_report():
@@ -327,11 +376,16 @@ def get_previous_report(output_dir, report_type):
     return None
 
 
-def gather_data_fem_health(data_file):
-    """Read DAT file for FEM health check + latest nastran utility report."""
+def gather_data_fem_health(data_file, config_file=None):
+    """Read DAT file for FEM health check + latest nastran utility report + expected files check."""
     parts = []
     with open(data_file, "r", errors="ignore") as f:
         parts.append("=== FEM Input Deck ===\n" + f.read()[:60000])
+
+    # Load config.yaml to determine expected input files
+    expected_files = _check_expected_files(data_file, config_file)
+    if expected_files:
+        parts.append("=== Expected Files ===\n" + expected_files)
 
     # Check for latest nastran utility simulation report
     nastran_report = find_latest_nastran_utility_report()
@@ -348,6 +402,92 @@ def gather_data_fem_health(data_file):
         print("No previous nastran utility report found (skipping)")
 
     return "\n\n".join(parts)
+
+
+def _check_expected_files(data_file, config_file=None):
+    """Check that all expected input files exist for a bolt looseness study.
+
+    Reads config.yaml to get the file list, then verifies each on disk.
+    Falls back to well-known defaults if config.yaml is not available.
+    """
+    # Try to find config.yaml: explicit arg > fem_input/config.yaml > same dir as data_file
+    config_path = None
+    if config_file and os.path.exists(config_file):
+        config_path = config_file
+    else:
+        # Look relative to repo root (Desktop)
+        candidates = [
+            os.path.join(os.path.dirname(data_file), "config.yaml"),
+            os.path.join(os.path.dirname(os.path.dirname(data_file)), "fem_input", "config.yaml"),
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                config_path = c
+                break
+
+    # Define expected files with roles
+    file_checks = {
+        "structural_model": {
+            "role": "Main Nastran input deck (SOL 103 modal analysis)",
+            "default": "Fixed_base_beam.dat",
+        },
+        "random_response": {
+            "role": "SOL 111 random response deck",
+            "default": "RandomBeamX.dat",
+        },
+        "bush_template": {
+            "role": "CBUSH/PBUSH property block (swept by HEEDS per design)",
+            "default": "Bush.blk",
+        },
+        "recoveries": {
+            "role": "XYPUNCH output recovery directives",
+            "default": "Recoveries.blk",
+        },
+    }
+
+    # Read filenames from config if available
+    fem_input_dir = os.path.dirname(data_file)
+    if config_path:
+        try:
+            import yaml
+            with open(config_path, "r") as f:
+                cfg = yaml.safe_load(f)
+            files_cfg = cfg.get("files", {})
+            for key in file_checks:
+                if key in files_cfg:
+                    file_checks[key]["filename"] = files_cfg[key]
+            # Use fem_input_dir from config if specified
+            if "fem_input_dir" in files_cfg:
+                repo_root = os.path.dirname(config_path)
+                if os.path.basename(repo_root) == "fem_input":
+                    repo_root = os.path.dirname(repo_root)
+                candidate_dir = os.path.join(repo_root, files_cfg["fem_input_dir"])
+                if os.path.isdir(candidate_dir):
+                    fem_input_dir = candidate_dir
+        except Exception as e:
+            print(f"Warning: could not parse config.yaml for expected files: {e}")
+
+    # Check each file
+    lines = []
+    for key, info in file_checks.items():
+        filename = info.get("filename", info["default"])
+        filepath = os.path.join(fem_input_dir, filename)
+        exists = os.path.exists(filepath)
+        status = "FOUND" if exists else "MISSING"
+        size_str = ""
+        if exists:
+            size_bytes = os.path.getsize(filepath)
+            size_str = f" ({size_bytes:,} bytes)"
+        lines.append(f"{key}: {filename} — {status}{size_str}")
+        lines.append(f"  Role: {info['role']}")
+        lines.append(f"  Path checked: {filepath}")
+
+    if config_path:
+        lines.insert(0, f"Config source: {config_path}")
+    else:
+        lines.insert(0, "Config source: defaults (config.yaml not found)")
+
+    return "\n".join(lines)
 
 
 def gather_data_study_plan(data_file, config_file=None):
@@ -408,10 +548,31 @@ def gather_data_db_health(db_path):
             "FROM cases c LEFT JOIN psd_data p ON c.case_id = p.case_id "
             "GROUP BY c.case_id ORDER BY c.case_number"
         )
+        rows_per_case = cursor.fetchall()
         lines.append("\nPer-case PSD row counts:")
-        for row in cursor.fetchall():
+        row_counts = []
+        for row in rows_per_case:
             bl = " [BASELINE]" if row[2] else ""
             lines.append(f"  Case {row[1]} ({row[0]}): {row[3]} PSD rows{bl}")
+            row_counts.append(row[3])
+
+        # Flag row count variation with context
+        if row_counts and len(set(row_counts)) > 1:
+            min_rc, max_rc = min(row_counts), max(row_counts)
+            delta = max_rc - min_rc
+            lines.append(f"\n  NOTE: PSD row counts vary ({min_rc:,} to {max_rc:,}, delta={delta}).")
+            lines.append(
+                "  This is EXPECTED Nastran SOL 111 behavior — the solver adaptively inserts "
+                "extra frequency points near resonance peaks, so designs with shifted resonances "
+                "may have slightly different frequency grids. This is NOT a data integrity issue "
+                "unless the delta is very large (>10% of the row count)."
+            )
+            pct = (delta / min_rc * 100) if min_rc > 0 else 0
+            lines.append(f"  Variation: {pct:.2f}% of minimum row count.")
+            if pct > 10:
+                lines.append("  WARNING: Variation exceeds 10% — investigate for possible solver issues.")
+        else:
+            lines.append("  All cases have identical PSD row counts.")
     except Exception:
         pass
 
@@ -617,7 +778,7 @@ def main():
 
     # Gather data based on report type
     if report_type == "fem_health":
-        data = gather_data_fem_health(args.data_file)
+        data = gather_data_fem_health(args.data_file, args.config_file)
     elif report_type == "study_plan":
         data = gather_data_study_plan(args.data_file, args.config_file)
     elif report_type == "heeds_status":

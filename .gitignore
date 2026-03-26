@@ -1,3 +1,24 @@
+# Secrets
+.env
+**/antrhopic_key.txt
+**/anthropic_key.txt
+*.credentials
+*.credentials_rsaparams
+
+# Runner internals & installers
+actions-runner/
+Claude Setup.exe
+PortableGit-*.exe
+*.lnk
+patran.ses.*
+
+# Claude local config
+.claude/
+
+# Dev/fix scratch copies
+Thesis_Dev/
+Thesis_Workflow_Fix/
+
 # Temporary working files
 work/
 *.tmp
