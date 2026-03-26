@@ -13,7 +13,7 @@ study:
   type: single_bolt_sweep   # sweep | single_bolt_sweep | doe | monte_carlo
   sweep_bolts: [2, 3, 4, 5, 6, 7, 8, 9, 10]   # all variable bolts
   sweep_levels: [1.0e4, 1.0e5, 1.0e6, 1.0e7, 1.0e8, 1.0e9, 1.0e10, 1.0e11, 1.0e12]
-  expected_designs: 81   # 9 bolts x 9 levels = 81
+  expected_designs: 73   # 9 bolts x 9 levels = 81 minus 8 duplicates (HEEDS deduplicates baseline-level designs)
 
 # --- FEM Model Files -------------------------------------------------------
 files:
