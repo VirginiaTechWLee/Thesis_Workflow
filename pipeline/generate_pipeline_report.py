@@ -49,13 +49,14 @@ SYSTEM_PROMPT = (
 
 # Report ordering for chaining — maps each report to the one before it
 REPORT_ORDER = [
-    "fem_health",       # 01 — no prior report, but checks nastran utility report
-    "study_plan",       # 02 — reads 01
-    "heeds_status",     # 03 — reads 02
-    "db_health",        # 04 — reads 03
-    "feature_matrix",   # 05 — reads 04
-    "classification",   # 06 — reads 05
-    "executive_summary",  # 07 — reads all 01-06
+    "fem_health",        # 01 — no prior report, but checks nastran utility report
+    "study_plan",        # 02 — reads 01
+    "heeds_status",      # 03 — reads 02
+    "db_health",         # 04 — reads 03
+    "psd_signatures",    # 05 — reads 04 — actual PSD curves and signature analysis
+    "feature_matrix",    # 06 — reads 05
+    "classification",    # 07 — reads 06
+    "executive_summary", # 08 — reads all 01-07
 ]
 
 REPORT_CONFIGS = {
@@ -187,9 +188,48 @@ REPORT_CONFIGS = {
             "from the HEEDS run? Any designs that completed but failed to import?\n\n"
         ),
     },
+    "psd_signatures": {
+        "title": "PSD Signature Analysis",
+        "filename": "05_psd_signatures.md",
+        "prompt": (
+            "Analyze this PSD (Power Spectral Density) signature data from a bolt looseness "
+            "study and produce a detailed engineering report.\n\n"
+            "Use ## headings for each section (never ### or deeper).\n\n"
+            "## Study Overview\n"
+            "- Study name, type, number of cases\n"
+            "- Which bolt(s) were swept and over what stiffness range\n\n"
+            "## Baseline Signature\n"
+            "- List the baseline peak frequencies and amplitudes per channel (node/DOF)\n"
+            "- What are the dominant resonance frequencies of this structure?\n\n"
+            "## Frequency Shift with Bolt Looseness\n"
+            "- Do resonant frequencies shift as bolt stiffness decreases?\n"
+            "- At what stiffness level does the first detectable frequency shift appear?\n"
+            "- Is the shift monotonic (consistently drops/rises with looseness) or non-linear?\n"
+            "- Which channels (nodes/DOFs) show the largest frequency shifts?\n\n"
+            "## Amplitude Change with Bolt Looseness\n"
+            "- How does PSD amplitude change as bolts loosen?\n"
+            "- What is the amplification ratio at the lowest stiffness vs baseline?\n"
+            "- Which channels amplify the most?\n"
+            "- Is there a stiffness threshold below which amplitude changes become large?\n\n"
+            "## Most Sensitive Channels\n"
+            "- Rank the top channels by sensitivity to bolt looseness\n"
+            "- Physical interpretation: what do these nodes/DOFs represent structurally?\n\n"
+            "## Distinguishability\n"
+            "- Can different stiffness levels be distinguished from each other based on PSD shape?\n"
+            "- Are there clear spectral fingerprints for different looseness severities?\n"
+            "- If multiple bolts are loose (Study B+): does the signature differ from single-bolt looseness?\n\n"
+            "## Assessment\n"
+            "- Overall: are the PSD signatures physically meaningful and separable?\n"
+            "- What features in the PSD data would be most useful for ML classification?\n"
+            "- Any anomalies or unexpected behaviors in the data?\n\n"
+            "IMPORTANT: A previous pipeline report (Database Health) is included below. "
+            "Cross-reference: does the case count match, and are there any data gaps that "
+            "affect the signature analysis?\n\n"
+        ),
+    },
     "feature_matrix": {
         "title": "Feature Matrix Report",
-        "filename": "05_feature_matrix.md",
+        "filename": "06_feature_matrix.md",
         "prompt": (
             "Analyze this feature extraction data and produce a report.\n\n"
             "Use ## headings for each section (never ### or deeper).\n\n"
@@ -218,7 +258,7 @@ REPORT_CONFIGS = {
     },
     "classification": {
         "title": "Classification Report",
-        "filename": "06_classification.md",
+        "filename": "07_classification.md",
         "prompt": (
             "Analyze this ML classification data and produce a report.\n\n"
             "Use ## headings for each section (never ### or deeper).\n\n"
@@ -246,7 +286,7 @@ REPORT_CONFIGS = {
     },
     "executive_summary": {
         "title": "Pipeline Executive Summary",
-        "filename": "07_executive_summary.md",
+        "filename": "08_executive_summary.md",
         "prompt": (
             "Analyze all previous pipeline stage reports and produce an executive summary.\n\n"
             "Use ## headings for each section (never ### or deeper).\n\n"
@@ -647,6 +687,212 @@ def gather_data_db_health(db_path):
     return "\n".join(lines)
 
 
+def gather_data_psd_signatures(db_path):
+    """Extract PSD peak/signature statistics from DB for LLM signature analysis."""
+    import sqlite3
+
+    if not os.path.exists(db_path):
+        return "Database not found: " + db_path
+
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+    lines = []
+
+    # --- Study info ---
+    c.execute(
+        "SELECT study_id, study_name, study_type, num_cases FROM studies "
+        "ORDER BY study_id DESC LIMIT 1"
+    )
+    study_row = c.fetchone()
+    if not study_row:
+        conn.close()
+        return "No studies found in database."
+    study_id, study_name, study_type, num_cases = study_row
+    lines.append(f"Study: {study_name}")
+    lines.append(f"Type: {study_type}")
+    lines.append(f"Cases in study: {num_cases}")
+
+    # --- Case list with parameters ---
+    c.execute(
+        "SELECT case_id, case_name, case_number, is_baseline FROM cases "
+        "WHERE study_id = ? ORDER BY case_number",
+        (study_id,),
+    )
+    cases = c.fetchall()
+    lines.append(f"Cases found in DB: {len(cases)}")
+
+    # Map case_id -> {element_id -> K4}
+    c.execute(
+        "SELECT p.case_id, p.element_id, p.K4 FROM parameters p "
+        "JOIN cases ca ON p.case_id = ca.case_id WHERE ca.study_id = ?",
+        (study_id,),
+    )
+    param_rows = c.fetchall()
+    case_stiffness = {}  # case_id -> list of (element_id, K4)
+    for cid, elem, k4 in param_rows:
+        case_stiffness.setdefault(cid, []).append((elem, k4))
+
+    # --- Peaks table: node/dof level response peaks ---
+    c.execute(
+        "SELECT pk.case_id, pk.node_id, pk.dof, pk.data_type, "
+        "pk.peak1_freq, pk.peak1_psd, pk.peak2_freq, pk.peak2_psd, pk.area "
+        "FROM peaks pk JOIN cases ca ON pk.case_id = ca.case_id "
+        "WHERE ca.study_id = ? ORDER BY ca.case_number, pk.node_id, pk.dof",
+        (study_id,),
+    )
+    peak_rows = c.fetchall()
+
+    if not peak_rows:
+        conn.close()
+        return "\n".join(lines) + "\n\nNo peaks data found in database."
+
+    # Identify channels (node_id, dof, data_type)
+    channels = sorted(set((r[1], r[2], r[3]) for r in peak_rows))
+    lines.append(f"Response channels (node/DOF combinations): {len(channels)}")
+
+    # Separate baseline vs swept
+    baseline_case_ids = {r[0] for r in cases if r[3]}  # is_baseline=1
+    baseline_peaks = {}  # (node, dof, dtype) -> (freq, psd, area)
+    swept_peaks = {}     # case_id -> {(node, dof, dtype) -> (freq, psd, area)}
+
+    for cid, node, dof, dtype, f1, p1, f2, p2, area in peak_rows:
+        key = (node, dof, dtype)
+        if cid in baseline_case_ids:
+            baseline_peaks[key] = (f1, p1, area)
+        else:
+            swept_peaks.setdefault(cid, {})[key] = (f1, p1, area)
+
+    # --- Baseline signature ---
+    lines.append("\n=== BASELINE PEAKS ===")
+    for key in sorted(baseline_peaks.keys()):
+        f1, p1, area = baseline_peaks[key]
+        lines.append(
+            f"  Node {key[0]}, DOF {key[1]} ({key[2]}): "
+            f"peak={f1:.2f} Hz @ {p1:.4e} g²/Hz, area={area:.4e}"
+        )
+
+    # --- Per-stiffness-level aggregate stats ---
+    # Group cases by their min K4 (the loosened bolt stiffness)
+    from collections import defaultdict
+    level_groups = defaultdict(list)  # min_K4 -> [case_id, ...]
+    for case_row in cases:
+        cid = case_row[0]
+        if cid in baseline_case_ids:
+            continue
+        stiffs = case_stiffness.get(cid, [])
+        if stiffs:
+            # For multi-bolt studies, use the min K4 (most-loosened)
+            min_k4 = min(k4 for _, k4 in stiffs if k4 is not None)
+            level_groups[min_k4].append(cid)
+
+    lines.append("\n=== PEAK FREQUENCY SHIFTS BY STIFFNESS LEVEL ===")
+    lines.append("(Mean shift across all cases at each stiffness level)")
+
+    for k4_val in sorted(level_groups.keys()):
+        case_ids = level_groups[k4_val]
+        lines.append(f"\nK4 = {k4_val:.2e} N/mm  ({len(case_ids)} cases):")
+        # Per channel: mean freq shift and mean amp ratio vs baseline
+        for key in sorted(baseline_peaks.keys()):
+            base_f, base_p, base_area = baseline_peaks[key]
+            freq_deltas = []
+            amp_ratios = []
+            for cid in case_ids:
+                cpks = swept_peaks.get(cid, {})
+                if key in cpks:
+                    f1, p1, area = cpks[key]
+                    if f1 is not None and base_f and base_f > 0:
+                        freq_deltas.append(f1 - base_f)
+                    if area is not None and base_area and abs(base_area) > 1e-30:
+                        amp_ratios.append(area / base_area)
+            if freq_deltas and amp_ratios:
+                mean_df = sum(freq_deltas) / len(freq_deltas)
+                mean_ratio = sum(amp_ratios) / len(amp_ratios)
+                max_ratio = max(amp_ratios)
+                pct_shift = (mean_df / base_f * 100) if base_f else 0
+                lines.append(
+                    f"    Node {key[0]}, DOF {key[1]}: "
+                    f"mean freq shift={mean_df:+.2f} Hz ({pct_shift:+.2f}%), "
+                    f"mean area ratio={mean_ratio:.3f}x, max area ratio={max_ratio:.3f}x"
+                )
+
+    # --- Top 5 most sensitive channels (by max area ratio across all levels) ---
+    lines.append("\n=== TOP CHANNELS BY SENSITIVITY TO BOLT LOOSENESS ===")
+    channel_max_ratio = {}
+    for key in sorted(baseline_peaks.keys()):
+        base_f, base_p, base_area = baseline_peaks[key]
+        if not base_area or abs(base_area) < 1e-30:
+            continue
+        max_r = 1.0
+        for cid, ch_dict in swept_peaks.items():
+            if key in ch_dict:
+                _, _, area = ch_dict[key]
+                if area is not None:
+                    r = area / base_area
+                    max_r = max(max_r, r)
+        channel_max_ratio[key] = max_r
+
+    ranked = sorted(channel_max_ratio.items(), key=lambda x: x[1], reverse=True)
+    for rank, (key, max_r) in enumerate(ranked[:8], 1):
+        base_f = baseline_peaks[key][0]
+        lines.append(
+            f"  {rank}. Node {key[0]}, DOF {key[1]} ({key[2]}): "
+            f"max ratio={max_r:.3f}x baseline, baseline peak={base_f:.2f} Hz"
+        )
+
+    # --- Sensitivity threshold: first stiffness level that causes >10% change ---
+    lines.append("\n=== DETECTABILITY THRESHOLD ===")
+    lines.append("(First K4 level where ANY channel exceeds 10% area increase vs baseline)")
+    sorted_levels = sorted(level_groups.keys(), reverse=True)  # highest K4 first
+    for k4_val in sorted_levels:
+        case_ids = level_groups[k4_val]
+        triggered = False
+        for key in baseline_peaks:
+            base_f, base_p, base_area = baseline_peaks[key]
+            if not base_area or abs(base_area) < 1e-30:
+                continue
+            for cid in case_ids:
+                cpks = swept_peaks.get(cid, {})
+                if key in cpks:
+                    _, _, area = cpks[key]
+                    if area is not None and area / base_area > 1.10:
+                        triggered = True
+                        break
+            if triggered:
+                break
+        flag = " <-- FIRST DETECTABLE CHANGE" if triggered else ""
+        lines.append(f"  K4={k4_val:.2e}: {'detectable change' if triggered else 'within 10% of baseline'}{flag}")
+
+    # --- Sample design table (first 30 cases, top 2 channels) ---
+    lines.append("\n=== SAMPLE CASE TABLE (first 30 cases, top 2 channels) ===")
+    top2 = [key for key, _ in ranked[:2]]
+    if top2:
+        hdr = "case_name | stiffness_K4 | " + " | ".join(
+            f"Node{k[0]}_DOF{k[1]}_freq_Hz | Node{k[0]}_DOF{k[1]}_area_ratio" for k in top2
+        )
+        lines.append(hdr)
+        for case_row in cases[:30]:
+            cid, cname, cnum, is_bl = case_row
+            if is_bl:
+                continue
+            stiffs = case_stiffness.get(cid, [])
+            k4_str = ",".join(f"{k4:.2e}" for _, k4 in stiffs) if stiffs else "N/A"
+            cols = [cname, k4_str]
+            for key in top2:
+                base_f, _, base_area = baseline_peaks.get(key, (None, None, None))
+                cpks = swept_peaks.get(cid, {})
+                if key in cpks and base_area and abs(base_area) > 1e-30:
+                    f1, _, area = cpks[key]
+                    ratio = area / base_area if area is not None else float("nan")
+                    cols.append(f"{f1:.2f}" if f1 else "N/A")
+                    cols.append(f"{ratio:.3f}")
+                else:
+                    cols += ["N/A", "N/A"]
+            lines.append(" | ".join(str(x) for x in cols))
+
+    conn.close()
+    return "\n".join(lines)
+
+
 def gather_data_feature_matrix(data_file):
     """Read training matrix stats."""
     import numpy as np
@@ -707,7 +953,7 @@ def gather_data_classification(data_file):
 def gather_data_executive_summary(output_dir):
     """Read all prior reports for executive summary."""
     parts = []
-    for i in range(1, 7):
+    for i in range(1, 8):
         pattern = f"{i:02d}_"
         for fname in sorted(os.listdir(output_dir)):
             if fname.startswith(pattern) and fname.endswith(".md"):
@@ -785,6 +1031,8 @@ def main():
         data = gather_data_heeds_status(args.data_file)
     elif report_type == "db_health":
         data = gather_data_db_health(args.db_path)
+    elif report_type == "psd_signatures":
+        data = gather_data_psd_signatures(args.db_path)
     elif report_type == "feature_matrix":
         data = gather_data_feature_matrix(args.data_file)
     elif report_type == "classification":

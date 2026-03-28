@@ -721,6 +721,23 @@ jobs:
             --output-dir "$reportsDir" 2>$stderrFile
           if ($LASTEXITCODE -ne 0) { Log "WARNING: DB health report failed (non-fatal)"; $global:LASTEXITCODE = 0 }
 
+      - name: "LLM Report: PSD Signature Analysis"
+        if: steps.config.outputs.LLM_REPORTS == 'true'
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+          $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
+          $stderrFile = "$reportsDir\report5_stderr.log"
+          Log "Generating PSD Signature Analysis report..."
+          & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
+            --report-type psd_signatures `
+            --db-path "${{ steps.config.outputs.DB_PATH }}" `
+            --output-dir "$reportsDir" 2>$stderrFile
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: PSD signature report failed (non-fatal)"; $global:LASTEXITCODE = 0 }
+
       # ================================================================
       # STAGE 7: ML TRAINING
       # ================================================================
