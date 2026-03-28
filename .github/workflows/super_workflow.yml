@@ -398,6 +398,21 @@ jobs:
           Log "Timeout: $timeoutSec seconds"
           Log "========================================================"
 
+          # skip_if_exists: if POST_0 already has enough PCH files, skip HEEDS entirely
+          $mode = "${{ github.event.inputs.folder_mode }}"
+          $studyFolder = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1"
+          $post0Folder = "$studyFolder\POST_0"
+          if ($mode -eq "skip_if_exists") {
+            $existingPCH = (Get-ChildItem $post0Folder -Recurse -Filter "*.pch" -ErrorAction SilentlyContinue).Count
+            Log "skip_if_exists mode: found $existingPCH PCH files (expected $expectedDesigns)"
+            if ($existingPCH -ge $expectedDesigns) {
+              Log "[SKIP] Sufficient PCH files already exist - skipping HEEDS run"
+              exit 0
+            } else {
+              Log "[WARN] Only $existingPCH PCH files found, need $expectedDesigns - will run HEEDS anyway"
+            }
+          }
+
           # Verify files
           if (-not (Test-Path $runScript)) {
             Log "ERROR: run_study_v2.py not found at $runScript"
