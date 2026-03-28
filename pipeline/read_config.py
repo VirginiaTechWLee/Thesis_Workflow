@@ -15,21 +15,26 @@ if study_type_override:
     study_type_map = {
         'study_A': ('single_bolt_sweep', 'study_A_single_bolt_sweep'),
         'study_B': ('two_bolt_sweep', 'study_B_two_bolt_sweep'),
-        'study_C': ('two_bolt_independent_sweep', 'study_C_two_bolt_independent'),
-        'study_D': ('random_multi_bolt_sweep', 'study_D_random_multi_bolt'),
+        'study_C': ('three_bolt_sweep', 'study_C_three_bolt_sweep'),
+        'study_D': ('all_bolt_sweep', 'study_D_all_bolt_sweep'),
     }
     if study_type_override in study_type_map:
         stype, sname = study_type_map[study_type_override]
         study['type'] = stype
         study['name'] = sname
         # Compute expected designs dynamically
+        from math import comb
         n_bolts = len(study.get('sweep_bolts', []))
         n_levels = len(study.get('sweep_levels', []))
+        n_non_baseline = n_levels - 1
         if stype == 'single_bolt_sweep':
-            study['expected_designs'] = n_bolts * (n_levels - 1) + 1  # +1 baseline shared
+            study['expected_designs'] = n_bolts * n_non_baseline + 1  # +1 shared baseline design
         elif stype == 'two_bolt_sweep':
-            from math import comb
-            study['expected_designs'] = comb(n_bolts, 2) * (n_levels - 1)
+            study['expected_designs'] = comb(n_bolts, 2) * n_non_baseline
+        elif stype == 'three_bolt_sweep':
+            study['expected_designs'] = comb(n_bolts, 3) * n_non_baseline
+        elif stype == 'all_bolt_sweep':
+            study['expected_designs'] = n_non_baseline
         print(f"# Override: study_type={study_type_override} -> type={stype}, name={sname}", file=sys.stderr)
 
 print('STUDY_NAME=' + str(study['name']))

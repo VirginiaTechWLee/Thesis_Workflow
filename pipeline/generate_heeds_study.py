@@ -314,6 +314,82 @@ def generate_two_bolt_sweep(
     return variable_bolts, designs, design_names
 
 
+def generate_three_bolt_sweep(
+    bolts: List[BoltInfo],
+    skip_bolts: List[int],
+    levels: List[Tuple[int, str]],
+) -> Tuple[List[BoltInfo], List[Dict], List[str]]:
+    """Generate design matrix for three-bolt simultaneous sweep study.
+
+    For each triplet of variable bolts, sweep all three K4=K5=K6 through
+    all non-baseline levels simultaneously. All other bolts stay at baseline.
+
+    Design count: C(N_bolts, 3) × (N_levels - 1)
+    Example: C(9,3) × 8 = 672 designs
+    """
+    from itertools import combinations
+
+    variable_bolts = [b for b in bolts if b.bolt_num not in skip_bolts]
+    num_levels = len(levels)
+    baseline_idx = num_levels
+
+    designs = []
+    design_names = []
+
+    for bolt_a, bolt_b, bolt_c in combinations(variable_bolts, 3):
+        for level_i, (exp, nastran_val) in enumerate(levels):
+            set_idx = level_i + 1
+            if set_idx == baseline_idx:
+                continue
+
+            design_name = f"bolt{bolt_a.bolt_num}_bolt{bolt_b.bolt_num}_bolt{bolt_c.bolt_num}_1e{exp}"
+            design_names.append(design_name)
+
+            row = {}
+            for vb in variable_bolts:
+                if vb.bolt_num in (bolt_a.bolt_num, bolt_b.bolt_num, bolt_c.bolt_num):
+                    row[vb.bolt_num] = set_idx
+                else:
+                    row[vb.bolt_num] = baseline_idx
+            designs.append(row)
+
+    return variable_bolts, designs, design_names
+
+
+def generate_all_bolt_sweep(
+    bolts: List[BoltInfo],
+    skip_bolts: List[int],
+    levels: List[Tuple[int, str]],
+) -> Tuple[List[BoltInfo], List[Dict], List[str]]:
+    """Generate design matrix for all-bolt simultaneous sweep (Study D).
+
+    All variable bolts loosen together at the same level. Tests the fully
+    degraded joint scenario.
+
+    Design count: N_levels - 1 (skip baseline)
+    Example: 8 designs (one per non-baseline level)
+    """
+    variable_bolts = [b for b in bolts if b.bolt_num not in skip_bolts]
+    num_levels = len(levels)
+    baseline_idx = num_levels
+
+    designs = []
+    design_names = []
+
+    for level_i, (exp, nastran_val) in enumerate(levels):
+        set_idx = level_i + 1
+        if set_idx == baseline_idx:
+            continue
+
+        design_name = f"all_bolts_1e{exp}"
+        design_names.append(design_name)
+
+        row = {vb.bolt_num: set_idx for vb in variable_bolts}
+        designs.append(row)
+
+    return variable_bolts, designs, design_names
+
+
 # ---------------------------------------------------------------------------
 # HEEDS XML generation
 # ---------------------------------------------------------------------------
@@ -884,7 +960,7 @@ Examples:
     )
     parser.add_argument(
         "--study-type", required=True,
-        choices=["single_bolt_sweep", "two_bolt_sweep", "full_factorial", "latin_hypercube", "monte_carlo"],
+        choices=["single_bolt_sweep", "two_bolt_sweep", "three_bolt_sweep", "all_bolt_sweep", "full_factorial", "latin_hypercube", "monte_carlo"],
         help="Type of study to generate"
     )
     parser.add_argument(
@@ -936,9 +1012,8 @@ Examples:
         print("ERROR: --output is required unless --dry-run is specified", file=sys.stderr)
         sys.exit(1)
 
-    if args.study_type not in ("single_bolt_sweep", "two_bolt_sweep"):
-        print(f"ERROR: --study-type '{args.study_type}' is not yet implemented. "
-              f"Only 'single_bolt_sweep' and 'two_bolt_sweep' are currently supported.", file=sys.stderr)
+    if args.study_type not in ("single_bolt_sweep", "two_bolt_sweep", "three_bolt_sweep", "all_bolt_sweep"):
+        print(f"ERROR: --study-type '{args.study_type}' is not yet implemented.", file=sys.stderr)
         sys.exit(1)
 
     # Parse Bush.blk
@@ -985,6 +1060,14 @@ Examples:
         )
     elif args.study_type == "two_bolt_sweep":
         variable_bolts, designs, design_names = generate_two_bolt_sweep(
+            all_bolts, skip_bolts, levels
+        )
+    elif args.study_type == "three_bolt_sweep":
+        variable_bolts, designs, design_names = generate_three_bolt_sweep(
+            all_bolts, skip_bolts, levels
+        )
+    elif args.study_type == "all_bolt_sweep":
+        variable_bolts, designs, design_names = generate_all_bolt_sweep(
             all_bolts, skip_bolts, levels
         )
 

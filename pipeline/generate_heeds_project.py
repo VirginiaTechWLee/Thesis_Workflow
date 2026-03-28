@@ -31,8 +31,8 @@ def generate_heeds_project(config_path=None, output_path=None):
         study_type_map = {
             'study_A': ('single_bolt_sweep', 'study_A_single_bolt_sweep'),
             'study_B': ('two_bolt_sweep', 'study_B_two_bolt_sweep'),
-            'study_C': ('two_bolt_independent_sweep', 'study_C_two_bolt_independent'),
-            'study_D': ('random_multi_bolt_sweep', 'study_D_random_multi_bolt'),
+            'study_C': ('three_bolt_sweep', 'study_C_three_bolt_sweep'),
+            'study_D': ('all_bolt_sweep', 'study_D_all_bolt_sweep'),
         }
         if study_type_override in study_type_map:
             stype, sname = study_type_map[study_type_override]
@@ -47,13 +47,18 @@ def generate_heeds_project(config_path=None, output_path=None):
     sweep_levels = study.get('sweep_levels', [1e6, 1e7, 1e8, 1e10, 1e12])
 
     # Compute expected designs dynamically based on study type
+    from math import comb as _comb
     study_type = study.get('type', 'sweep')
-    if study_type == 'two_bolt_sweep':
-        from itertools import combinations
-        n_pairs = len(list(combinations(sweep_bolts, 2)))
-        expected_designs = n_pairs * (len(sweep_levels) - 1)
-    elif study_type == 'single_bolt_sweep':
-        expected_designs = study.get('expected_designs', len(sweep_bolts) * (len(sweep_levels) - 1))
+    n_bolts = len(sweep_bolts)
+    n_non_baseline = len(sweep_levels) - 1
+    if study_type == 'single_bolt_sweep':
+        expected_designs = n_bolts * n_non_baseline + 1  # +1 shared baseline design
+    elif study_type == 'two_bolt_sweep':
+        expected_designs = _comb(n_bolts, 2) * n_non_baseline
+    elif study_type == 'three_bolt_sweep':
+        expected_designs = _comb(n_bolts, 3) * n_non_baseline
+    elif study_type == 'all_bolt_sweep':
+        expected_designs = n_non_baseline
     else:
         expected_designs = study.get('expected_designs', len(sweep_levels))
 
@@ -198,6 +203,38 @@ def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
                     else:
                         row_vals.append(f'    {baseline_idx}')
                 data_rows.append(','.join(row_vals))
+    elif study_type == 'three_bolt_sweep':
+        # Three-bolt sweep: loosen THREE bolts simultaneously, rest at baseline
+        from itertools import combinations
+        for bolt_a, bolt_b, bolt_c in combinations(sweep_bolts, 3):
+            for level_i, level in enumerate(sweep_levels):
+                set_idx = level_i + 1
+                if set_idx == baseline_idx:
+                    continue
+                exp_str = f"{level:.0e}"
+                e_part = exp_str.split('e+')[1] if 'e+' in exp_str else exp_str.split('e')[1]
+                name = f"bolt{bolt_a}_bolt{bolt_b}_bolt{bolt_c}_1e{int(e_part)}"
+                design_name_lines.append(f'        <Design name="{name}" map="false" resp="false"/>')
+
+                row_vals = []
+                for var in variables:
+                    var_bolt = int(var.split('bolt')[1])
+                    if var_bolt in (bolt_a, bolt_b, bolt_c):
+                        row_vals.append(f'    {set_idx}')
+                    else:
+                        row_vals.append(f'    {baseline_idx}')
+                data_rows.append(','.join(row_vals))
+    elif study_type == 'all_bolt_sweep':
+        # All-bolt sweep: all bolts loosen together (Study D — fully degraded)
+        for level_i, level in enumerate(sweep_levels):
+            set_idx = level_i + 1
+            if set_idx == baseline_idx:
+                continue
+            exp_str = f"{level:.0e}"
+            e_part = exp_str.split('e+')[1] if 'e+' in exp_str else exp_str.split('e')[1]
+            name = f"all_bolts_1e{int(e_part)}"
+            design_name_lines.append(f'        <Design name="{name}" map="false" resp="false"/>')
+            data_rows.append(','.join([f'    {set_idx}'] * len(variables)))
     else:
         # Default sweep: all bolts get the same level simultaneously
         for level_i, level in enumerate(sweep_levels):
