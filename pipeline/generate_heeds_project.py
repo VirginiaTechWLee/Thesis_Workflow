@@ -252,11 +252,6 @@ def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
     data_header = ', '.join(header_parts)
     data_block = '\n'.join(data_rows)
 
-    # --- Command for postAnalysis (HEEDS Python runs Pch_TO_CSV2.py) ---
-    # XML entity-encode the double quotes around the path
-    heeds_python_escaped = heeds_python.replace('\\', '\\')
-    command_attr = f'&quot;{heeds_python_escaped}&quot; {postprocessor}'
-
     # --- f06 filename (lowercase of structural model with .f06 extension) ---
     f06_name = structural_model.rsplit('.', 1)[0].lower() + '.f06'
 
@@ -321,8 +316,7 @@ def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
         <VisFile type="image" filename="all_displacement_dof_T1.png" source="analysisFolder"/>
         <VisFile type="data" filename="randombeamx.pch" source="analysisFolder"/>
         <VisFile type="data" filename="{bush_template}" source="analysisFolder"/>
-        <Command command="{command_attr}" event="postAnalysis" folder="designFolder" useRval="0" value="0"/>
-        <primaryInput ref="HEEDS.Input.File.{structural_model}"/>
+<primaryInput ref="HEEDS.Input.File.{structural_model}"/>
         <Reservation active="false" mode="share"/>
         <FinishCondition ref="HEEDS.Attribute.Condition.Condition_1"/>
         <RunCondition folder="designFolder" ref="" resource="LOCAL"/>

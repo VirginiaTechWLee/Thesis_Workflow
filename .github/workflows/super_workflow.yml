@@ -459,8 +459,7 @@ jobs:
             $designFolders = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
             foreach ($design in $designFolders) {
               $pchExists = Test-Path "$($design.FullName)\Analysis_1\randombeamx.pch"
-              $csvExists = Test-Path "$($design.FullName)\Analysis_1\acceleration_results.csv"
-              if ($pchExists -and $csvExists) { $completed++ }
+              if ($pchExists) { $completed++ }
             }
 
             $totalFolders = ($designFolders | Measure-Object).Count
@@ -500,7 +499,7 @@ jobs:
                 $pch = Test-Path "$($d.FullName)\Analysis_1\randombeamx.pch"
                 $csv = Test-Path "$($d.FullName)\Analysis_1\acceleration_results.csv"
                 Log "  $($d.Name): PCH=$pch CSV=$csv"
-                if ($pch -and $csv) { $thoroughCount++ }
+                if ($pch) { $thoroughCount++ }
               }
               if ($thoroughCount -ge $expectedDesigns) {
                 $mins = [math]::Round($elapsed/60, 1)
@@ -906,13 +905,13 @@ jobs:
             foreach ($design in $designFolders) {
               $pchExists = Test-Path "$($design.FullName)\Analysis_1\randombeamx.pch"
               $csvExists = Test-Path "$($design.FullName)\Analysis_1\acceleration_results.csv"
-              if ($pchExists -and $csvExists) { $verified++ }
+              if ($pchExists) { $verified++ }
             }
 
             $totalFolders = ($designFolders | Measure-Object).Count
             Log "Study folder: $studyFolder"
             Log "POST_0 folders: $totalFolders"
-            Log "Fully verified (PCH + CSV): $verified / $expectedDesigns"
+            Log "Verified (PCH): $verified / $expectedDesigns"
 
             if ($verified -ge [int]$expectedDesigns) {
               Log ""
