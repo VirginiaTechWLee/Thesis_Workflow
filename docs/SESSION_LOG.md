@@ -619,3 +619,20 @@ The Bush.blk inside `bolt_sweep_9bolts_9levels/` had bad Nastran formatting (lef
 - bolt3_sweep data (Study ID 1) preserved alongside
 
 **Status: COMPLETE** — Study A results in database. Done locally (not via workflow).
+
+### 2026-03-26 — Study A Wired into Super Workflow
+
+**Changes made:**
+1. `fem_input/config.yaml`: switched from bolt3_sweep to study_A_single_bolt_sweep (9 bolts × 9 levels)
+2. `pipeline/generate_heeds_project.py`: added `single_bolt_sweep` design matrix (loosen ONE bolt at a time)
+3. `pipeline/generate_bat.py`: `ping -n 11` instead of `timeout /t 10` (cross-shell compatible)
+
+**Run 1 (23580635291):** Failed — expected 81 designs but HEEDS produced 73 (deduplicates baseline-level designs). All 73 designs had PCH + CSV. Fix: updated `expected_designs` to 73.
+
+**Run 2 (23599876935): ALL GREEN — 29/29 steps in 31m23s.**
+- HEEDS: 73/73 designs verified (PCH + CSV)
+- DB import: 73 cases, 2.1M PSD records
+- Feature extraction: successful
+- Classifier training: successful
+- All 7 LLM reports generated
+- **Study A is proven end-to-end through the automated pipeline.**

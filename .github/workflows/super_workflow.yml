@@ -16,6 +16,17 @@ on:
         options:
           - overwrite_existing
           - skip_if_exists
+      study_type:
+        description: 'Study type (overrides config.yaml). Leave empty to use config.'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - study_A
+          - study_B
+          - study_C
+          - study_D
       llm_reports:
         description: 'Generate LLM reports at each pipeline stage'
         required: false
@@ -47,6 +58,7 @@ jobs:
           Log "  SUPER WORKFLOW - READING CONFIG"
           Log "========================================================"
 
+          $env:STUDY_TYPE_OVERRIDE = "${{ inputs.study_type }}"
           $configOutput = & "${{ vars.PYTHON_PATH }}" pipeline/read_config.py
 
           foreach ($line in $configOutput) {
@@ -199,6 +211,8 @@ jobs:
 
       - name: Generate HEEDS project file
         shell: powershell
+        env:
+          STUDY_TYPE_OVERRIDE: ${{ inputs.study_type }}
         run: |
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
 

@@ -264,6 +264,56 @@ def generate_single_bolt_sweep(
     return variable_bolts, designs, design_names
 
 
+def generate_two_bolt_sweep(
+    bolts: List[BoltInfo],
+    skip_bolts: List[int],
+    levels: List[Tuple[int, str]],
+) -> Tuple[List[BoltInfo], List[Dict], List[str]]:
+    """Generate design matrix for two-bolt simultaneous sweep study.
+
+    For each pair of variable bolts, sweep both K4=K5=K6 through all
+    non-baseline levels simultaneously while all other bolts stay at
+    baseline (tight = last level index).
+
+    Design count: C(N_bolts, 2) × (N_levels - 1)
+    Example: C(9,2) × 8 = 288 designs
+
+    Returns:
+        variable_bolts: list of BoltInfo for swept bolts
+        designs: list of dicts with design info
+        design_names: list of design name strings
+    """
+    from itertools import combinations
+
+    variable_bolts = [b for b in bolts if b.bolt_num not in skip_bolts]
+    num_levels = len(levels)
+    baseline_idx = num_levels  # tight = last index (1-based)
+
+    designs = []
+    design_names = []
+
+    for bolt_a, bolt_b in combinations(variable_bolts, 2):
+        for level_i, (exp, nastran_val) in enumerate(levels):
+            set_idx = level_i + 1
+            # Skip baseline-level designs (both bolts tight = no damage)
+            if set_idx == baseline_idx:
+                continue
+
+            design_name = f"bolt{bolt_a.bolt_num}_bolt{bolt_b.bolt_num}_1e{exp}"
+            design_names.append(design_name)
+
+            # Both bolts in pair at set_idx, all others at baseline
+            row = {}
+            for vb in variable_bolts:
+                if vb.bolt_num in (bolt_a.bolt_num, bolt_b.bolt_num):
+                    row[vb.bolt_num] = set_idx
+                else:
+                    row[vb.bolt_num] = baseline_idx
+            designs.append(row)
+
+    return variable_bolts, designs, design_names
+
+
 # ---------------------------------------------------------------------------
 # HEEDS XML generation
 # ---------------------------------------------------------------------------
@@ -834,7 +884,7 @@ Examples:
     )
     parser.add_argument(
         "--study-type", required=True,
-        choices=["single_bolt_sweep", "full_factorial", "latin_hypercube", "monte_carlo"],
+        choices=["single_bolt_sweep", "two_bolt_sweep", "full_factorial", "latin_hypercube", "monte_carlo"],
         help="Type of study to generate"
     )
     parser.add_argument(
@@ -886,9 +936,9 @@ Examples:
         print("ERROR: --output is required unless --dry-run is specified", file=sys.stderr)
         sys.exit(1)
 
-    if args.study_type != "single_bolt_sweep":
+    if args.study_type not in ("single_bolt_sweep", "two_bolt_sweep"):
         print(f"ERROR: --study-type '{args.study_type}' is not yet implemented. "
-              f"Only 'single_bolt_sweep' is currently supported.", file=sys.stderr)
+              f"Only 'single_bolt_sweep' and 'two_bolt_sweep' are currently supported.", file=sys.stderr)
         sys.exit(1)
 
     # Parse Bush.blk
@@ -931,6 +981,10 @@ Examples:
     # Generate design matrix
     if args.study_type == "single_bolt_sweep":
         variable_bolts, designs, design_names = generate_single_bolt_sweep(
+            all_bolts, skip_bolts, levels
+        )
+    elif args.study_type == "two_bolt_sweep":
+        variable_bolts, designs, design_names = generate_two_bolt_sweep(
             all_bolts, skip_bolts, levels
         )
 
