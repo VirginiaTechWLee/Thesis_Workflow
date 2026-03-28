@@ -169,7 +169,7 @@ jobs:
             --report-type fem_health `
             --data-file "fem_input/${{ steps.config.outputs.STRUCTURAL_MODEL }}" `
             --output-dir "$reportsDir" 2>$stderrFile
-          if ($LASTEXITCODE -ne 0) { Log "WARNING: FEM health report failed (non-fatal)" }
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: FEM health report failed (non-fatal)"; $global:LASTEXITCODE = 0 }
 
       # ================================================================
       # STAGE 3: GENERATE PIPELINE FILES
@@ -257,7 +257,7 @@ jobs:
             --data-file "heeds/projects/${studyName}.heeds" `
             --config-file "fem_input/config.yaml" `
             --output-dir "$reportsDir" 2>$stderrFile
-          if ($LASTEXITCODE -ne 0) { Log "WARNING: Study plan report failed (non-fatal)" }
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Study plan report failed (non-fatal)"; $global:LASTEXITCODE = 0 }
 
       # ================================================================
       # STAGE 4: PREPARE HEEDS EXECUTION
@@ -579,7 +579,7 @@ jobs:
             --data-file "$studyLog" `
             --output-dir "$reportsDir" `
             --extra-data "$extra" 2>$stderrFile
-          if ($LASTEXITCODE -ne 0) { Log "WARNING: HEEDS status report failed (non-fatal)" }
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: HEEDS status report failed (non-fatal)"; $global:LASTEXITCODE = 0 }
 
       # ================================================================
       # STAGE 6: DATABASE IMPORT
@@ -704,7 +704,7 @@ jobs:
             --report-type db_health `
             --db-path "${{ steps.config.outputs.DB_PATH }}" `
             --output-dir "$reportsDir" 2>$stderrFile
-          if ($LASTEXITCODE -ne 0) { Log "WARNING: DB health report failed (non-fatal)" }
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: DB health report failed (non-fatal)"; $global:LASTEXITCODE = 0 }
 
       # ================================================================
       # STAGE 7: ML TRAINING
@@ -816,7 +816,7 @@ jobs:
             --report-type feature_matrix `
             --data-file "$dbDir\training_matrix.npz" `
             --output-dir "$reportsDir" 2>$stderrFile
-          if ($LASTEXITCODE -ne 0) { Log "WARNING: Feature matrix report failed (non-fatal)" }
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Feature matrix report failed (non-fatal)"; $global:LASTEXITCODE = 0 }
 
       # ================================================================
       # LLM REPORT 6: Classification
@@ -837,7 +837,7 @@ jobs:
             --report-type classification `
             --data-file "$dbDir\classification_report.txt" `
             --output-dir "$reportsDir" 2>$stderrFile
-          if ($LASTEXITCODE -ne 0) { Log "WARNING: Classification report failed (non-fatal)" }
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Classification report failed (non-fatal)"; $global:LASTEXITCODE = 0 }
 
       # ================================================================
       # LLM REPORT 7: Executive Summary
@@ -856,7 +856,7 @@ jobs:
           & "${{ vars.PYTHON_PATH }}" pipeline/generate_pipeline_report.py `
             --report-type executive_summary `
             --output-dir "$reportsDir" 2>$stderrFile
-          if ($LASTEXITCODE -ne 0) { Log "WARNING: Executive summary report failed (non-fatal)" }
+          if ($LASTEXITCODE -ne 0) { Log "WARNING: Executive summary report failed (non-fatal)"; $global:LASTEXITCODE = 0 }
           else {
             Log ""
             Log "=== EXECUTIVE SUMMARY ==="
