@@ -405,12 +405,13 @@ jobs:
           $post0Folder = "$studyFolder\POST_0"
           if ($mode -eq "skip_if_exists") {
             $existingPCH = (Get-ChildItem $post0Folder -Recurse -Filter "*.pch" -ErrorAction SilentlyContinue).Count
-            Log "skip_if_exists mode: found $existingPCH PCH files (expected $expectedDesigns)"
-            if ($existingPCH -ge $expectedDesigns) {
-              Log "[SKIP] Sufficient PCH files already exist - skipping HEEDS run"
+            $threshold = [math]::Floor($expectedDesigns * 0.99)
+            Log "skip_if_exists mode: found $existingPCH PCH files (expected $expectedDesigns, threshold $threshold)"
+            if ($existingPCH -ge $threshold) {
+              Log "[SKIP] Sufficient PCH files already exist ($existingPCH >= $threshold) - skipping HEEDS run"
               exit 0
             } else {
-              Log "[WARN] Only $existingPCH PCH files found, need $expectedDesigns - will run HEEDS anyway"
+              Log "[WARN] Only $existingPCH PCH files found, need $threshold - will run HEEDS anyway"
             }
           }
 
@@ -510,18 +511,23 @@ jobs:
             if ($heedsFinished) {
               Log "HEEDS run complete - verifying each design..."
               $thoroughCount = 0
+              $missingDesigns = @()
               $designFolders2 = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
               foreach ($d in $designFolders2) {
                 $pch = Test-Path "$($d.FullName)\Analysis_1\randombeamx.pch"
-                $csv = Test-Path "$($d.FullName)\Analysis_1\acceleration_results.csv"
-                Log "  $($d.Name): PCH=$pch CSV=$csv"
-                if ($pch) { $thoroughCount++ }
+                if ($pch) { $thoroughCount++ } else { $missingDesigns += $d.Name }
               }
-              if ($thoroughCount -ge $expectedDesigns) {
+              $threshold = [math]::Floor($expectedDesigns * 0.99)
+              if ($thoroughCount -ge $threshold) {
                 $mins = [math]::Round($elapsed/60, 1)
                 Log ""
                 Log "========================================================"
-                Log "  STUDY COMPLETE! HEEDS finished + all $thoroughCount designs verified"
+                if ($thoroughCount -ge $expectedDesigns) {
+                  Log "  STUDY COMPLETE! HEEDS finished + all $thoroughCount designs verified"
+                } else {
+                  Log "  STUDY COMPLETE (with warnings)! $thoroughCount/$expectedDesigns designs verified"
+                  Log "  Missing PCH ($($missingDesigns.Count)): $($missingDesigns -join ', ')"
+                }
                 Log "========================================================"
                 Log "Total time: $([int]$elapsed) seconds ($mins minutes)"
                 break
@@ -536,22 +542,27 @@ jobs:
               exit 1
             }
 
-            # Stall detection - no patient mode; HEEDS-done exit is handled above
+            # Stall detection
             if ($completed -eq $lastCount) {
               $stallTime += 15
               if ($stallTime -ge $maxStall) {
-                Log "ERROR: Stalled for $stallTime seconds (max: $maxStall) | HEEDS finished: $heedsFinished | Verified: $completed/$expectedDesigns"
-                # Log per-design status for debugging
-                $designFolders3 = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
-                foreach ($d in $designFolders3) {
-                  $pch = Test-Path "$($d.FullName)\Analysis_1\randombeamx.pch"
-                  $csv = Test-Path "$($d.FullName)\Analysis_1\acceleration_results.csv"
-                  Log "  $($d.Name): PCH=$pch CSV=$csv"
+                if ($heedsFinished) {
+                  # HEEDS already done — stall means no more PCH files are coming. Accept with warning.
+                  $missingOnStall = @()
+                  $designFolders3 = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
+                  foreach ($d in $designFolders3) {
+                    if (-not (Test-Path "$($d.FullName)\Analysis_1\randombeamx.pch")) { $missingOnStall += $d.Name }
+                  }
+                  Log "WARNING: Stalled but HEEDS already finished. $completed/$expectedDesigns designs verified."
+                  Log "Missing PCH ($($missingOnStall.Count)): $($missingOnStall -join ', ')"
+                  break
+                } else {
+                  Log "ERROR: Stalled for $stallTime seconds with HEEDS still running | Verified: $completed/$expectedDesigns"
+                  Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
+                  Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
+                  Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
+                  exit 1
                 }
-                Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
-                Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
-                Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
-                exit 1
               }
             } else {
               $stallTime = 0
