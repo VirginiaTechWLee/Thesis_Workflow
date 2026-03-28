@@ -100,6 +100,13 @@ def calculate_area(freq_psd_list):
     psd_values = np.array([x[1] for x in freq_psd_list])
     return float(np.trapz(psd_values, frequencies))
 
+def apply_performance_pragmas(conn):
+    """Apply SQLite pragmas for fast bulk inserts. Call once after connect."""
+    conn.execute('PRAGMA synchronous = OFF')    # no fsync per commit — 10-100x faster
+    conn.execute('PRAGMA journal_mode = WAL')   # WAL allows reads during writes
+    conn.execute('PRAGMA cache_size = -65536')  # 64 MB page cache
+    conn.execute('PRAGMA temp_store = MEMORY')
+
 def get_or_create_study(conn, study_name):
     cursor = conn.cursor()
     cursor.execute('SELECT study_id FROM studies WHERE study_name = ?', (study_name,))
@@ -127,15 +134,13 @@ def insert_case(conn, study_id, design_num, pch_file):
     cursor = conn.cursor()
     cursor.execute('INSERT INTO cases (study_id, case_name, case_number, is_baseline, pch_file) VALUES (?, ?, ?, ?, ?)',
                    (study_id, f"Design_{design_num}", design_num, False, pch_file))
-    conn.commit()
-    return cursor.lastrowid
+    return cursor.lastrowid  # no commit — caller handles transaction
 
 def insert_parameters_batch(conn, case_id, parameters):
     cursor = conn.cursor()
     rows = [(case_id, eid, s['K4'], s['K5'], s['K6']) for eid, s in parameters.items()]
     cursor.executemany('INSERT INTO parameters (case_id, element_id, K4, K5, K6) VALUES (?, ?, ?, ?, ?)', rows)
-    conn.commit()
-    return len(rows)
+    return len(rows)  # no commit — caller handles transaction
 
 def insert_psd_data_batch(conn, case_id, psd_data):
     cursor = conn.cursor()
@@ -145,8 +150,7 @@ def insert_psd_data_batch(conn, case_id, psd_data):
             for freq, psd in fpl:
                 rows.append((case_id, node_id, dof, freq, psd, dt))
     cursor.executemany('INSERT INTO psd_data (case_id, node_id, dof, frequency, psd_value, data_type) VALUES (?, ?, ?, ?, ?, ?)', rows)
-    conn.commit()
-    return len(rows)
+    return len(rows)  # no commit — caller handles transaction
 
 def insert_peaks_batch(conn, case_id, psd_data):
     cursor = conn.cursor()
@@ -157,8 +161,7 @@ def insert_peaks_batch(conn, case_id, psd_data):
             peaks = find_peaks(fpl, 3)
             rows.append((case_id, node_id, dof, dt, area, peaks[0][0], peaks[0][1], peaks[1][0], peaks[1][1], peaks[2][0], peaks[2][1]))
     cursor.executemany('INSERT INTO peaks (case_id, node_id, dof, data_type, area, peak1_freq, peak1_psd, peak2_freq, peak2_psd, peak3_freq, peak3_psd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', rows)
-    conn.commit()
-    return len(rows)
+    return len(rows)  # no commit — caller handles transaction
 
 def scan_post0_folder(post0_dir):
     designs = []
@@ -223,15 +226,20 @@ def batch_import(post0_dir, study_name, db_path, reset_study=False, dry_run=Fals
         import subprocess, sys
         subprocess.check_call([sys.executable, setup_script, '--db_path', db_path])
         conn = sqlite3.connect(db_path)
+    apply_performance_pragmas(conn)
+
+    COMMIT_EVERY = 50  # commit every N designs — balances memory vs fsync frequency
 
     try:
+        import time as _time
         study_id = get_or_create_study(conn, study_name)
         print(f"\nStudy ID: {study_id}")
         if reset_study:
             d = reset_study_data(conn, study_id)
             print(f"Reset: deleted {d} cases")
         tpsd, tpeak, tparam = 0, 0, 0
-        print(f"\nImporting...")
+        t0 = _time.time()
+        print(f"\nImporting {len(designs)} designs (commit every {COMMIT_EVERY})...")
         for i, (dn, bp, pp) in enumerate(designs, 1):
             print(f"[{i}/{len(designs)}] Design {dn}...", end=" ", flush=True)
             cid = insert_case(conn, study_id, dn, pp)
@@ -242,8 +250,18 @@ def batch_import(post0_dir, study_name, db_path, reset_study=False, dry_run=Fals
             psd = parse_pch_file(pp)
             tpsd += insert_psd_data_batch(conn, cid, psd)
             tpeak += insert_peaks_batch(conn, cid, psd)
-            print("OK")
+            elapsed = _time.time() - t0
+            rate = i / elapsed if elapsed > 0 else 0
+            eta = (len(designs) - i) / rate if rate > 0 else 0
+            print(f"OK  ({elapsed:.0f}s elapsed, {rate:.2f} designs/s, ETA {eta:.0f}s)")
+            # Checkpoint commit every N designs
+            if i % COMMIT_EVERY == 0:
+                conn.commit()
+                print(f"  [COMMIT at {i}/{len(designs)}]", flush=True)
+        conn.commit()  # final commit
+        total = _time.time() - t0
         print(f"\nDone! Cases:{len(designs)} Params:{tparam} PSD:{tpsd:,} Peaks:{tpeak}")
+        print(f"Total time: {total:.1f}s ({total/len(designs):.2f}s/design)")
         print(f"DB size: {os.path.getsize(db_path)/1024/1024:.2f} MB")
         return True
     except Exception as e:
