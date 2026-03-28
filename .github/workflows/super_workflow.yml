@@ -917,17 +917,17 @@ jobs:
         run: |
           $reportsDir = "${{ steps.config.outputs.REPORTS_DIR }}"
           if (Test-Path $reportsDir) {
-            $content = @"
-PIPELINE RUN COMPLETE
-=====================
-Study:      ${{ steps.config.outputs.STUDY_NAME }}
-Run ID:     ${{ github.run_id }}
-Completed:  $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-Designs:    ${{ steps.config.outputs.EXPECTED_DESIGNS }}
-DB:         ${{ steps.config.outputs.DB_PATH }}
-GHA URL:    https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-"@
-            $content | Out-File -FilePath "$reportsDir\_COMPLETE.txt" -Encoding utf8
+            $lines = @(
+              "PIPELINE RUN COMPLETE",
+              "=====================",
+              "Study:      ${{ steps.config.outputs.STUDY_NAME }}",
+              "Run ID:     ${{ github.run_id }}",
+              "Completed:  $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
+              "Designs:    ${{ steps.config.outputs.EXPECTED_DESIGNS }}",
+              "DB:         ${{ steps.config.outputs.DB_PATH }}",
+              "GHA URL:    https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            )
+            $lines | Out-File -FilePath "$reportsDir\_COMPLETE.txt" -Encoding utf8
             Write-Host "Marked complete: $reportsDir\_COMPLETE.txt"
           }
 
