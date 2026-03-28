@@ -404,14 +404,19 @@ jobs:
           $studyFolder = "${{ vars.HEEDS_WORKING_DIR }}\${studyName}_Study_1"
           $post0Folder = "$studyFolder\POST_0"
           if ($mode -eq "skip_if_exists") {
+            # Completion signal: Study_1.log contains "End of HEEDS run"
+            $studyLogPath = "$studyFolder\Study_1.log"
+            $prevRunDone = $false
+            if (Test-Path $studyLogPath) {
+              $prevRunDone = [bool](Select-String -Path $studyLogPath -Pattern "End of HEEDS run" -Quiet -ErrorAction SilentlyContinue)
+            }
             $existingPCH = (Get-ChildItem $post0Folder -Recurse -Filter "*.pch" -ErrorAction SilentlyContinue).Count
-            $threshold = [math]::Floor($expectedDesigns * 0.99)
-            Log "skip_if_exists mode: found $existingPCH PCH files (expected $expectedDesigns, threshold $threshold)"
-            if ($existingPCH -ge $threshold) {
-              Log "[SKIP] Sufficient PCH files already exist ($existingPCH >= $threshold) - skipping HEEDS run"
+            Log "skip_if_exists: previous HEEDS run complete=$prevRunDone, PCH files found=$existingPCH (expected=$expectedDesigns)"
+            if ($prevRunDone) {
+              Log "[SKIP] Previous HEEDS run completed (End of HEEDS run detected) - skipping HEEDS, proceeding to DB import"
               exit 0
             } else {
-              Log "[WARN] Only $existingPCH PCH files found, need $threshold - will run HEEDS anyway"
+              Log "[WARN] No completed HEEDS run found - will run HEEDS"
             }
           }
 
@@ -459,6 +464,8 @@ jobs:
           Log "SUCCESS: Study folder created!"
 
           # Monitor progress
+          # Completion = HEEDS signals "End of HEEDS run". PCH count is logged but NEVER a gate.
+          # expectedDesigns is a display target only — not a pass/fail threshold.
           Log ""
           Log "========================================================"
           Log "  MONITORING PROGRESS"
@@ -466,103 +473,73 @@ jobs:
 
           $lastCount = 0
           $stallTime = 0
-          $maxStall = 600
+          $maxStall = 600  # 10 min stall only fails if HEEDS is still running
 
           while ($true) {
             $elapsed = ((Get-Date) - $startTime).TotalSeconds
 
-            # Count verified designs in POST_0
+            # Count PCH files (display only)
             $completed = 0
             $designFolders = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
             foreach ($design in $designFolders) {
-              $pchExists = Test-Path "$($design.FullName)\Analysis_1\randombeamx.pch"
-              if ($pchExists) { $completed++ }
+              if (Test-Path "$($design.FullName)\Analysis_1\randombeamx.pch") { $completed++ }
             }
-
             $totalFolders = ($designFolders | Measure-Object).Count
+
+            # Progress bar (expectedDesigns = display target only)
             $pct = if ($expectedDesigns -gt 0) { [math]::Round(($completed / $expectedDesigns) * 100, 1) } else { 0 }
             $barLen = 40
             $filled = [math]::Min($barLen, [math]::Floor($barLen * $completed / [math]::Max($expectedDesigns, 1)))
             $bar = ("#" * $filled) + ("-" * ($barLen - $filled))
 
-            # Check if HEEDS has signaled completion
+            # Check if HEEDS has signaled completion (primary completion signal)
             $studyLog = "$studyFolder\Study_1.log"
             $heedsFinished = $false
             if (Test-Path $studyLog) {
-              $heedsFinished = Select-String -Path $studyLog -Pattern "End of HEEDS run" -Quiet -ErrorAction SilentlyContinue
+              $heedsFinished = [bool](Select-String -Path $studyLog -Pattern "End of HEEDS run" -Quiet -ErrorAction SilentlyContinue)
             }
 
             $heedsTag = if ($heedsFinished) { " [HEEDS DONE]" } else { "" }
-            Log "[$bar] $completed/$expectedDesigns verified ($pct%) | POST_0: $totalFolders | Elapsed: $([int]$elapsed)s$heedsTag"
+            Log "[$bar] $completed/$expectedDesigns PCH | POST_0 folders: $totalFolders | Elapsed: $([int]$elapsed)s$heedsTag"
 
-            # Primary completion: all designs verified
-            if ($completed -ge $expectedDesigns) {
+            # PRIMARY COMPLETION: HEEDS signals done — accept whatever PCH count we got
+            if ($heedsFinished) {
               $mins = [math]::Round($elapsed/60, 1)
+              # Final tally of missing PCH files (informational only)
+              $missingDesigns = @()
+              foreach ($d in (Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue)) {
+                if (-not (Test-Path "$($d.FullName)\Analysis_1\randombeamx.pch")) { $missingDesigns += $d.Name }
+              }
               Log ""
               Log "========================================================"
-              Log "  STUDY COMPLETE!"
+              Log "  HEEDS RUN COMPLETE"
               Log "========================================================"
-              Log "Verified designs: $completed"
+              Log "PCH verified: $completed / $expectedDesigns (expected)"
+              if ($missingDesigns.Count -gt 0) {
+                Log "WARNING: $($missingDesigns.Count) design(s) missing PCH (Nastran failed): $($missingDesigns -join ', ')"
+              }
               Log "Total time: $([int]$elapsed) seconds ($mins minutes)"
               break
             }
 
-            # HEEDS finished - do thorough per-design check and exit if all present
-            if ($heedsFinished) {
-              Log "HEEDS run complete - verifying each design..."
-              $thoroughCount = 0
-              $missingDesigns = @()
-              $designFolders2 = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
-              foreach ($d in $designFolders2) {
-                $pch = Test-Path "$($d.FullName)\Analysis_1\randombeamx.pch"
-                if ($pch) { $thoroughCount++ } else { $missingDesigns += $d.Name }
-              }
-              $threshold = [math]::Floor($expectedDesigns * 0.99)
-              if ($thoroughCount -ge $threshold) {
-                $mins = [math]::Round($elapsed/60, 1)
-                Log ""
-                Log "========================================================"
-                if ($thoroughCount -ge $expectedDesigns) {
-                  Log "  STUDY COMPLETE! HEEDS finished + all $thoroughCount designs verified"
-                } else {
-                  Log "  STUDY COMPLETE (with warnings)! $thoroughCount/$expectedDesigns designs verified"
-                  Log "  Missing PCH ($($missingDesigns.Count)): $($missingDesigns -join ', ')"
-                }
-                Log "========================================================"
-                Log "Total time: $([int]$elapsed) seconds ($mins minutes)"
-                break
-              }
-            }
-
+            # Timeout: HEEDS still running and we exceeded wall-clock limit
             if ($elapsed -gt $timeoutSec) {
-              Log "ERROR: Study timed out after $timeoutSec seconds"
+              Log "ERROR: Study timed out after $timeoutSec seconds - HEEDS never signaled completion"
               Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
               Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
               Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
               exit 1
             }
 
-            # Stall detection
+            # Stall detection: only fail if HEEDS is STILL running and PCH count is frozen
             if ($completed -eq $lastCount) {
               $stallTime += 15
               if ($stallTime -ge $maxStall) {
-                if ($heedsFinished) {
-                  # HEEDS already done — stall means no more PCH files are coming. Accept with warning.
-                  $missingOnStall = @()
-                  $designFolders3 = Get-ChildItem "$post0Folder\Design*" -Directory -ErrorAction SilentlyContinue
-                  foreach ($d in $designFolders3) {
-                    if (-not (Test-Path "$($d.FullName)\Analysis_1\randombeamx.pch")) { $missingOnStall += $d.Name }
-                  }
-                  Log "WARNING: Stalled but HEEDS already finished. $completed/$expectedDesigns designs verified."
-                  Log "Missing PCH ($($missingOnStall.Count)): $($missingOnStall -join ', ')"
-                  break
-                } else {
-                  Log "ERROR: Stalled for $stallTime seconds with HEEDS still running | Verified: $completed/$expectedDesigns"
-                  Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
-                  Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
-                  Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
-                  exit 1
-                }
+                Log "ERROR: PCH count stalled at $completed for $stallTime seconds and HEEDS has not signaled completion"
+                Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
+                Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
+                Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
+                exit 1
               }
             } else {
               $stallTime = 0
