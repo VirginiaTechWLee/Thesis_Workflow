@@ -90,7 +90,8 @@ jobs:
           $dbDir = Split-Path ($configOutput | Where-Object { $_ -match '^DB_PATH=' } | ForEach-Object { $_ -replace '^DB_PATH=', '' })
           $studyName = ($configOutput | Where-Object { $_ -match '^STUDY_NAME=' } | ForEach-Object { $_ -replace '^STUDY_NAME=', '' })
           $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-          $reportsDir = "$dbDir\pipeline_reports\${studyName}_${timestamp}"
+          $runId = if ($env:GITHUB_RUN_ID) { "run$($env:GITHUB_RUN_ID)" } else { "Local" }
+          $reportsDir = "$dbDir\pipeline_reports\${studyName}_${timestamp}_${runId}"
           echo "REPORTS_DIR=$reportsDir" >> $env:GITHUB_OUTPUT
           Log "  REPORTS_DIR = $reportsDir"
 
