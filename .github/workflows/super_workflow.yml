@@ -27,14 +27,28 @@ on:
           - study_B
           - study_C
           - study_D
+          - study_E
       llm_reports:
         description: 'Generate LLM reports at each pipeline stage'
         required: false
         default: 'false'
         type: boolean
+      run_baseline:
+        description: 'Run baseline Nastran solve first (only needed when FEM changes)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
+  baseline:
+    if: ${{ inputs.run_baseline == true }}
+    uses: ./.github/workflows/baseline_workflow1.yml
+    with:
+      commit_results: true
+
   super-pipeline:
+    needs: [baseline]
+    if: ${{ always() && (needs.baseline.result == 'success' || needs.baseline.result == 'skipped') }}
     runs-on: self-hosted
     timeout-minutes: 180
 
