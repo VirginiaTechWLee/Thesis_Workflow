@@ -687,7 +687,7 @@ def gather_data_db_health(db_path):
     return "\n".join(lines)
 
 
-def gather_data_psd_signatures(db_path):
+def gather_data_psd_signatures(db_path, study_name=None):
     """Extract PSD peak/signature statistics from DB for LLM signature analysis."""
     import sqlite3
 
@@ -699,14 +699,20 @@ def gather_data_psd_signatures(db_path):
     lines = []
 
     # --- Study info ---
-    c.execute(
-        "SELECT study_id, study_name, study_type, num_cases FROM studies "
-        "ORDER BY study_id DESC LIMIT 1"
-    )
+    if study_name:
+        c.execute(
+            "SELECT study_id, study_name, study_type, num_cases FROM studies "
+            "WHERE study_name = ?", (study_name,)
+        )
+    else:
+        c.execute(
+            "SELECT study_id, study_name, study_type, num_cases FROM studies "
+            "ORDER BY study_id DESC LIMIT 1"
+        )
     study_row = c.fetchone()
     if not study_row:
         conn.close()
-        return "No studies found in database."
+        return f"Study not found in database: {study_name}" if study_name else "No studies found in database."
     study_id, study_name, study_type, num_cases = study_row
     lines.append(f"Study: {study_name}")
     lines.append(f"Type: {study_type}")
@@ -752,6 +758,57 @@ def gather_data_psd_signatures(db_path):
 
     # Separate baseline vs swept
     baseline_case_ids = {r[0] for r in cases if r[3]}  # is_baseline=1
+
+    # Auto-detect baseline if none flagged: case where all VARIABLE bolts are at max stiffness
+    # Some elements may be fixed (same value across all cases) — exclude those from baseline check
+    if not baseline_case_ids and case_stiffness:
+        # Find elements that vary across cases vs fixed ones
+        from collections import defaultdict as _dd
+        elem_values = _dd(set)
+        for stiffs in case_stiffness.values():
+            for elem, k4 in stiffs:
+                if k4 is not None:
+                    elem_values[elem].add(k4)
+        variable_elems = {e for e, vals in elem_values.items() if len(vals) > 1}
+        if variable_elems:
+            max_k4 = max(k4 for stiffs in case_stiffness.values()
+                         for elem, k4 in stiffs if elem in variable_elems and k4 is not None)
+            for case_row in cases:
+                cid = case_row[0]
+                stiffs = case_stiffness.get(cid, [])
+                var_stiffs = [(e, k4) for e, k4 in stiffs if e in variable_elems]
+                if var_stiffs and all(k4 == max_k4 for _, k4 in var_stiffs):
+                    baseline_case_ids.add(cid)
+            if baseline_case_ids:
+                lines.append(f"Auto-detected {len(baseline_case_ids)} baseline case(s) "
+                             f"(variable bolts at K4={max_k4:.2e}, {len(variable_elems)} variable elements)")
+
+    # Cross-study baseline fallback: if this study has no baseline, borrow from another study
+    # Exclude fixed elements (element_id=1 is always 1e8) by checking only variable elements
+    if not baseline_case_ids:
+        c.execute(
+            "SELECT c.case_id FROM cases c "
+            "JOIN parameters p ON c.case_id = p.case_id "
+            "WHERE c.study_id != ? AND p.element_id > 1 "
+            "GROUP BY c.case_id "
+            "HAVING MIN(p.K4) >= 1e12 "
+            "LIMIT 1",
+            (study_id,),
+        )
+        xref = c.fetchone()
+        if xref:
+            baseline_case_ids.add(xref[0])
+            # Load that case's peaks into peak_rows
+            c.execute(
+                "SELECT pk.case_id, pk.node_id, pk.dof, pk.data_type, "
+                "pk.peak1_freq, pk.peak1_psd, pk.peak2_freq, pk.peak2_psd, pk.area "
+                "FROM peaks pk WHERE pk.case_id = ? ORDER BY pk.node_id, pk.dof",
+                (xref[0],),
+            )
+            extra_peaks = c.fetchall()
+            peak_rows = list(peak_rows) + extra_peaks
+            lines.append(f"No baseline in this study — using cross-study baseline (case_id={xref[0]})")
+
     baseline_peaks = {}  # (node, dof, dtype) -> (freq, psd, area)
     swept_peaks = {}     # case_id -> {(node, dof, dtype) -> (freq, psd, area)}
 
@@ -766,6 +823,8 @@ def gather_data_psd_signatures(db_path):
     lines.append("\n=== BASELINE PEAKS ===")
     for key in sorted(baseline_peaks.keys()):
         f1, p1, area = baseline_peaks[key]
+        if f1 is None or p1 is None or area is None:
+            continue
         lines.append(
             f"  Node {key[0]}, DOF {key[1]} ({key[2]}): "
             f"peak={f1:.2f} Hz @ {p1:.4e} g²/Hz, area={area:.4e}"

@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       timeout_minutes:
-        description: 'Timeout in minutes'
+        description: 'Timeout in minutes (default 35000 = ~24 days. HEEDS studies can take days for large FEMs.)'
         required: true
-        default: '120'
+        default: '35000'
         type: string
       folder_mode:
         description: 'How to handle existing study folders'
@@ -50,7 +50,7 @@ jobs:
     needs: [baseline]
     if: ${{ always() && (needs.baseline.result == 'success' || needs.baseline.result == 'skipped') }}
     runs-on: self-hosted
-    timeout-minutes: 180
+    timeout-minutes: ${{ inputs.timeout_minutes && fromJSON(inputs.timeout_minutes) || 180 }}
 
     steps:
       # ================================================================
@@ -410,7 +410,26 @@ jobs:
           Log "Project: $studyName"
           Log "HEEDS file: $heedsFile"
           Log "Expected designs: $expectedDesigns"
-          Log "Timeout: $timeoutSec seconds"
+          Log "GitHub job timeout: ~24 days (will NOT kill HEEDS prematurely)"
+          Log "HEEDS monitor timeout: $timeoutSec seconds (informational only)"
+          Log ""
+          Log "NOTE: Large FEM studies can take DAYS. The pipeline waits for"
+          Log "HEEDS to signal 'End of HEEDS run' — there is no artificial cutoff."
+          Log ""
+          Log "IF HEEDS IS INTERRUPTED (machine restart, power loss, etc.):"
+          Log "  1. Open HEEDS GUI: $heedsFile"
+          Log "  2. HEEDS will prompt 'Study appears to be running' -> click IMPORT"
+          Log "  3. Wait for it to load completed designs"
+          Log "  4. Click STOP to clear the stale state"
+          Log "  5. If prompted to terminate -> click YES (no running Nastran to lose)"
+          Log "  6. Click RESTART (green double-arrow)"
+          Log "  7. Select 'Continue from completed design data'"
+          Log "  8. Select 'Write the input files and restart the study'"
+          Log "  9. Uncheck 'Back up current study data' (saves time/disk)"
+          Log "  10. Click RESTART — HEEDS resumes from where it left off"
+          Log ""
+          Log "After HEEDS finishes via GUI, re-trigger the pipeline with"
+          Log "skip_if_exists to import results and generate reports."
           Log "========================================================"
 
           # skip_if_exists: if POST_0 already has enough PCH files, skip HEEDS entirely
@@ -536,24 +555,12 @@ jobs:
               break
             }
 
-            # Timeout: HEEDS still running and we exceeded wall-clock limit
-            if ($elapsed -gt $timeoutSec) {
-              Log "ERROR: Study timed out after $timeoutSec seconds - HEEDS never signaled completion"
-              Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
-              Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
-              Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
-              exit 1
-            }
-
-            # Stall detection: only fail if HEEDS is STILL running and PCH count is frozen
+            # Stall detection: warn but NEVER kill HEEDS
             if ($completed -eq $lastCount) {
               $stallTime += 15
-              if ($stallTime -ge $maxStall) {
-                Log "ERROR: PCH count stalled at $completed for $stallTime seconds and HEEDS has not signaled completion"
-                Stop-Process -Name "heeds" -Force -ErrorAction SilentlyContinue
-                Stop-Process -Name "HEEDSMDO" -Force -ErrorAction SilentlyContinue
-                Stop-Process -Name "nastran" -Force -ErrorAction SilentlyContinue
-                exit 1
+              if ($stallTime -ge $maxStall -and ($stallTime % 600 -eq 0)) {
+                Log "WARNING: PCH count stalled at $completed for $([int]($stallTime/60)) minutes — HEEDS may be working on a difficult design"
+                Log "         This is NOT an error. Large FEMs can take a long time per design."
               }
             } else {
               $stallTime = 0
