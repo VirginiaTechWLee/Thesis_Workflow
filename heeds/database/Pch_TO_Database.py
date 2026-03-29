@@ -206,21 +206,29 @@ def calculate_area(freq_psd_list):
     return trapz_fn(psd_values, frequencies)
 
 
-def get_or_create_study(conn, study_name, study_type='manual', description=None):
+def get_or_create_study(conn, study_name, study_type='manual', description=None, is_baseline=False):
     """Get study_id or create new study."""
     cursor = conn.cursor()
-    
+
     cursor.execute('SELECT study_id FROM studies WHERE study_name = ?', (study_name,))
     result = cursor.fetchone()
-    
+
     if result:
         return result[0]
-    
-    cursor.execute(
-        'INSERT INTO studies (study_name, study_type, description) VALUES (?, ?, ?)',
-        (study_name, study_type, description))
+
+    if is_baseline:
+        # Baseline study always gets study_id=0
+        cursor.execute(
+            'INSERT INTO studies (study_id, study_name, study_type, is_baseline, description) '
+            'VALUES (0, ?, ?, 1, ?)',
+            (study_name, study_type, description))
+    else:
+        cursor.execute(
+            'INSERT INTO studies (study_name, study_type, is_baseline, description) '
+            'VALUES (?, ?, 0, ?)',
+            (study_name, study_type, description))
     conn.commit()
-    return cursor.lastrowid
+    return cursor.lastrowid if not is_baseline else 0
 
 
 def delete_case_data(conn, case_id):
@@ -368,8 +376,17 @@ def main():
     
     try:
         # Get or create study
-        study_id = get_or_create_study(conn, args.study, args.study_type, args.description)
-        print(f"Study: {args.study} (study_id={study_id})")
+        # When importing baseline, always use study_baseline
+        if args.is_baseline:
+            study_name = "study_baseline"
+            study_type = "baseline"
+            if args.study and args.study != "study_baseline":
+                print(f"NOTE: --is_baseline set, overriding --study '{args.study}' -> 'study_baseline'")
+        else:
+            study_name = args.study
+            study_type = args.study_type
+        study_id = get_or_create_study(conn, study_name, study_type, args.description, is_baseline=args.is_baseline)
+        print(f"Study: {study_name} (study_id={study_id})")
         
         # Insert case
         case_id = insert_case(

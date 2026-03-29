@@ -33,18 +33,23 @@ def main():
 
     # Show studies
     try:
-        cursor.execute('SELECT study_name, study_type, num_cases, status FROM studies')
+        cursor.execute('SELECT study_id, study_name, study_type, num_cases, is_baseline, status FROM studies ORDER BY study_id')
         for row in cursor.fetchall():
-            print('  Study: {} ({}, {} cases, {})'.format(*row))
+            bl_tag = ' [BASELINE]' if row[4] else ''
+            print('  study_id={} | {} | {} | {} cases | {}{}'.format(row[0], row[1], row[2], row[3], row[5], bl_tag))
     except Exception:
         pass
 
     # Show baseline
     try:
-        cursor.execute('SELECT case_id, case_name FROM cases WHERE is_baseline = 1')
+        cursor.execute(
+            'SELECT c.case_id, c.case_name, s.study_name FROM cases c '
+            'JOIN studies s ON c.study_id = s.study_id WHERE s.is_baseline = 1 AND c.is_baseline = 1')
         baseline = cursor.fetchone()
         if baseline:
-            print('Baseline: case_id={}, name={}'.format(*baseline))
+            print('Baseline: case_id={}, name={}, study={}'.format(*baseline))
+        else:
+            print('WARNING: No baseline found in database')
     except Exception:
         pass
 

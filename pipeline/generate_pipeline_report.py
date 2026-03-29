@@ -756,58 +756,29 @@ def gather_data_psd_signatures(db_path, study_name=None):
     channels = sorted(set((r[1], r[2], r[3]) for r in peak_rows))
     lines.append(f"Response channels (node/DOF combinations): {len(channels)}")
 
-    # Separate baseline vs swept
-    baseline_case_ids = {r[0] for r in cases if r[3]}  # is_baseline=1
-
-    # Auto-detect baseline if none flagged: case where all VARIABLE bolts are at max stiffness
-    # Some elements may be fixed (same value across all cases) — exclude those from baseline check
-    if not baseline_case_ids and case_stiffness:
-        # Find elements that vary across cases vs fixed ones
-        from collections import defaultdict as _dd
-        elem_values = _dd(set)
-        for stiffs in case_stiffness.values():
-            for elem, k4 in stiffs:
-                if k4 is not None:
-                    elem_values[elem].add(k4)
-        variable_elems = {e for e, vals in elem_values.items() if len(vals) > 1}
-        if variable_elems:
-            max_k4 = max(k4 for stiffs in case_stiffness.values()
-                         for elem, k4 in stiffs if elem in variable_elems and k4 is not None)
-            for case_row in cases:
-                cid = case_row[0]
-                stiffs = case_stiffness.get(cid, [])
-                var_stiffs = [(e, k4) for e, k4 in stiffs if e in variable_elems]
-                if var_stiffs and all(k4 == max_k4 for _, k4 in var_stiffs):
-                    baseline_case_ids.add(cid)
-            if baseline_case_ids:
-                lines.append(f"Auto-detected {len(baseline_case_ids)} baseline case(s) "
-                             f"(variable bolts at K4={max_k4:.2e}, {len(variable_elems)} variable elements)")
-
-    # Cross-study baseline fallback: if this study has no baseline, borrow from another study
-    # Exclude fixed elements (element_id=1 is always 1e8) by checking only variable elements
-    if not baseline_case_ids:
-        c.execute(
-            "SELECT c.case_id FROM cases c "
-            "JOIN parameters p ON c.case_id = p.case_id "
-            "WHERE c.study_id != ? AND p.element_id > 1 "
-            "GROUP BY c.case_id "
-            "HAVING MIN(p.K4) >= 1e12 "
-            "LIMIT 1",
-            (study_id,),
-        )
-        xref = c.fetchone()
-        if xref:
-            baseline_case_ids.add(xref[0])
-            # Load that case's peaks into peak_rows
+    # Baseline: always pull from study_baseline (studies.is_baseline=1)
+    baseline_case_ids = set()
+    c.execute(
+        "SELECT c.case_id FROM cases c "
+        "JOIN studies s ON c.study_id = s.study_id "
+        "WHERE s.is_baseline = 1 AND c.is_baseline = 1"
+    )
+    baseline_rows = c.fetchall()
+    if baseline_rows:
+        for row in baseline_rows:
+            baseline_case_ids.add(row[0])
+        # Load baseline peaks into peak_rows
+        for bcid in baseline_case_ids:
             c.execute(
                 "SELECT pk.case_id, pk.node_id, pk.dof, pk.data_type, "
                 "pk.peak1_freq, pk.peak1_psd, pk.peak2_freq, pk.peak2_psd, pk.area "
                 "FROM peaks pk WHERE pk.case_id = ? ORDER BY pk.node_id, pk.dof",
-                (xref[0],),
+                (bcid,),
             )
-            extra_peaks = c.fetchall()
-            peak_rows = list(peak_rows) + extra_peaks
-            lines.append(f"No baseline in this study — using cross-study baseline (case_id={xref[0]})")
+            peak_rows = list(peak_rows) + c.fetchall()
+        lines.append(f"Baseline: study_baseline (case_id={sorted(baseline_case_ids)})")
+    else:
+        lines.append("WARNING: No study_baseline found in database — PSD deltas cannot be computed")
 
     baseline_peaks = {}  # (node, dof, dtype) -> (freq, psd, area)
     swept_peaks = {}     # case_id -> {(node, dof, dtype) -> (freq, psd, area)}

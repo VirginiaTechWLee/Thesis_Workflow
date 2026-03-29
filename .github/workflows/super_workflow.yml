@@ -676,17 +676,17 @@ jobs:
         run: |
           function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
 
-          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
-
           Log "========================================================"
-          Log "  IMPORTING BASELINE AS CASE 0"
+          Log "  IMPORTING BASELINE INTO study_baseline"
           Log "========================================================"
+          Log "Baseline is imported ONCE into study_baseline (study_id=0)."
+          Log "All studies reference this single baseline for PSD delta computation."
 
           & "${{ vars.PYTHON_PATH }}" heeds/database/Pch_TO_Database.py `
             --pch baseline/randombeamx.pch `
-            --study "$studyName" --study_type "sweep" `
+            --study "study_baseline" --study_type "baseline" `
             --case_name "baseline" `
-            --case_number 0 `
+            --case_number 1 `
             --is_baseline `
             --bush_file baseline/Bush.blk `
             --db_path "${{ steps.config.outputs.DB_PATH }}" `
@@ -696,7 +696,7 @@ jobs:
             Log "ERROR: Baseline import failed"
             exit 1
           }
-          Log "Baseline imported as case 0"
+          Log "Baseline imported into study_baseline (study_id=0, is_baseline=1)"
           Log "========================================================"
 
       - name: Show database summary

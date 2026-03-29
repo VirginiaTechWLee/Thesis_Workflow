@@ -27,6 +27,7 @@ def create_schema(conn):
             study_name TEXT UNIQUE NOT NULL,
             study_type TEXT NOT NULL DEFAULT 'manual',
             num_cases INTEGER,
+            is_baseline INTEGER DEFAULT 0,
             description TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             completed_at TIMESTAMP,
@@ -43,6 +44,13 @@ def create_schema(conn):
         cursor.execute("ALTER TABLE studies ADD COLUMN completed_at TIMESTAMP")
         cursor.execute("ALTER TABLE studies ADD COLUMN status TEXT DEFAULT 'created'")
         print("Migrated studies table: added study_type, num_cases, completed_at, status")
+
+    # Migrate: add is_baseline to studies if missing
+    try:
+        cursor.execute("SELECT is_baseline FROM studies LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE studies ADD COLUMN is_baseline INTEGER DEFAULT 0")
+        print("Migrated studies table: added is_baseline")
     
     # Cases table - individual analysis runs
     cursor.execute('''

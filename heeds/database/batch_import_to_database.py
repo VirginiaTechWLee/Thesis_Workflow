@@ -113,7 +113,7 @@ def get_or_create_study(conn, study_name):
     result = cursor.fetchone()
     if result:
         return result[0]
-    cursor.execute('INSERT INTO studies (study_name) VALUES (?)', (study_name,))
+    cursor.execute('INSERT INTO studies (study_name, is_baseline) VALUES (?, 0)', (study_name,))
     conn.commit()
     return cursor.lastrowid
 
@@ -217,15 +217,11 @@ def batch_import(post0_dir, study_name, db_path, reset_study=False, dry_run=Fals
         if result[0] != 'ok':
             raise sqlite3.DatabaseError(f"integrity_check: {result[0]}")
     except sqlite3.DatabaseError as e:
-        print(f"WARNING: Database corrupt ({e}), deleting and recreating...")
         conn.close()
-        os.remove(db_path)
-        # Recreate via setup_database
-        setup_dir = os.path.dirname(os.path.abspath(__file__))
-        setup_script = os.path.join(setup_dir, 'setup_database.py')
-        import subprocess, sys
-        subprocess.check_call([sys.executable, setup_script, '--db_path', db_path])
-        conn = sqlite3.connect(db_path)
+        print(f"ERROR: Database integrity check failed: {e}")
+        print(f"ERROR: Will NOT auto-delete. Investigate before proceeding: {db_path}")
+        print(f"ERROR: If the DB is truly corrupt, manually delete it and re-run setup_database.py")
+        return False
     apply_performance_pragmas(conn)
 
     COMMIT_EVERY = 50  # commit every N designs — balances memory vs fsync frequency
