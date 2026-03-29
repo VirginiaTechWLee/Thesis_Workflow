@@ -11,11 +11,11 @@ on:
       folder_mode:
         description: 'How to handle existing study folders'
         required: true
-        default: 'overwrite_existing'
+        default: 'skip_if_exists'
         type: choice
         options:
-          - overwrite_existing
           - skip_if_exists
+          - overwrite_existing
       study_type:
         description: 'Study type (overrides config.yaml). Leave empty to use config.'
         required: false
