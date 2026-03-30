@@ -110,3 +110,7 @@ paths:
   nastran_exe: "C:\\Program Files\\Siemens\\Simcenter3D\\NXNASTRAN\\bin\\nastranw.exe"
   python_exe: "C:\\ProgramData\\anaconda3\\python.exe"
   heeds_python: "C:\\HEEDS\\MDO\\Ver2410\\Python3\\python.exe"
+  heeds_mdo_path: "C:\\HEEDS\\MDO\\Ver2410\\Python3\\python.exe"
+  heeds_solver: "C:\\HEEDS\\MDO\\Ver2410\\Win64\\solver\\heeds.exe"
+  heeds_working_dir: "C:\\Users\\waynelee\\Documents"
+  db_dir: "D:\\thesis_database"

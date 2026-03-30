@@ -15,9 +15,13 @@ Usage:
 
 import argparse
 import math
+import os
 import sqlite3
 import sys
 import time
+
+# Force unbuffered output so progress is visible in real-time (logs, MCP, CI)
+os.environ["PYTHONUNBUFFERED"] = "1"
 from pathlib import Path
 
 import numpy as np

@@ -373,7 +373,19 @@ def call_anthropic(system_prompt, user_prompt, max_retries=3):
 
 
 def find_latest_nastran_utility_report():
-    """Find the most recent simulation_report.md from FEM_Utility runs."""
+    """Find the most recent simulation_report.md.
+
+    Checks two locations in order:
+    1. Stable published path: D:\\thesis_database\\fem_utility\\simulation_report.md
+       (auto-populated by run_nastran_utility.py after every FEM run)
+    2. Fallback: timestamped folders in Documents\\FEM_Utility\\
+    """
+    # 1. Check stable path first (always preferred — most recent published run)
+    stable_path = os.path.join(r'D:\thesis_database', 'fem_utility', 'simulation_report.md')
+    if os.path.exists(stable_path):
+        return stable_path
+
+    # 2. Fallback: search timestamped folders
     fem_utility_base = os.path.join(
         os.environ.get('USERPROFILE', r'C:\Users\waynelee'),
         'Documents', 'FEM_Utility'
@@ -381,16 +393,42 @@ def find_latest_nastran_utility_report():
     if not os.path.exists(fem_utility_base):
         return None
 
-    # Find all simulation_report.md files across timestamped run folders
     report_files = globmod.glob(
         os.path.join(fem_utility_base, '*', 'simulation_report.md')
     )
     if not report_files:
         return None
 
-    # Return the most recently modified one
     latest = max(report_files, key=os.path.getmtime)
     return latest
+
+
+def get_fem_utility_context():
+    """Load the FEM utility report as shared context for ALL downstream LLM reports.
+
+    This gives every report access to the baseline model properties:
+    natural frequencies, mode shapes, CBUSH stiffness, force data, etc.
+    Returns a formatted string, or empty string if not available.
+    """
+    report_path = find_latest_nastran_utility_report()
+    if not report_path:
+        print("Note: No FEM utility report found — downstream reports will lack model context")
+        return ""
+
+    with open(report_path, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+
+    if len(content.strip()) < 100:
+        return ""
+
+    print(f"Injecting FEM utility context ({len(content):,} chars) from {report_path}")
+    return (
+        "\n\n=== FEM Utility Baseline Report (Model Properties & Modal Analysis) ===\n"
+        "This is the Nastran FEM baseline analysis. Use this data to understand "
+        "the model structure, natural frequencies, mode shapes, CBUSH stiffness values, "
+        "and bolt force data. All other pipeline results build on this foundation.\n\n"
+        + content
+    )
 
 
 def get_previous_report(output_dir, report_type):
@@ -409,6 +447,18 @@ def get_previous_report(output_dir, report_type):
     if os.path.exists(prev_path):
         with open(prev_path, "r", encoding="utf-8") as f:
             content = f.read()
+
+        # Validate: skip if report is too short, empty, or looks like an error
+        if len(content.strip()) < 100:
+            print(f"Note: previous report {prev_cfg['filename']} is too short ({len(content)} chars) — skipping chain")
+            return None
+        error_markers = ["FATAL:", "Traceback", "ERROR:", "report failed", "No data", "not found"]
+        # Only skip if the ENTIRE report is an error (not just mentions one)
+        first_500 = content[:500].lower()
+        if any(marker.lower() in first_500 for marker in error_markers) and len(content) < 500:
+            print(f"Note: previous report {prev_cfg['filename']} appears to be an error — skipping chain")
+            return None
+
         print(f"Chained context: reading previous report {prev_cfg['filename']}")
         return f"=== Previous Pipeline Report: {prev_cfg['title']} ===\n{content}"
 
@@ -589,11 +639,16 @@ def gather_data_db_health(db_path):
             "GROUP BY c.case_id ORDER BY c.case_number"
         )
         rows_per_case = cursor.fetchall()
-        lines.append("\nPer-case PSD row counts:")
+        lines.append(f"\nPer-case PSD row counts ({len(rows_per_case)} cases):")
         row_counts = []
-        for row in rows_per_case:
+        # Show first 20 and last 5 cases as sample, summarize the rest
+        sample_rows = rows_per_case[:20] + rows_per_case[-5:] if len(rows_per_case) > 25 else rows_per_case
+        for row in sample_rows:
             bl = " [BASELINE]" if row[2] else ""
             lines.append(f"  Case {row[1]} ({row[0]}): {row[3]} PSD rows{bl}")
+        if len(rows_per_case) > 25:
+            lines.append(f"  ... ({len(rows_per_case) - 25} more cases omitted for brevity)")
+        for row in rows_per_case:
             row_counts.append(row[3])
 
         # Flag row count variation with context
@@ -624,12 +679,16 @@ def gather_data_db_health(db_path):
         )
         rows = cursor.fetchall()
         if rows:
-            lines.append("\nStiffness values per case (K4, K5, K6):")
-            for row in rows:
+            lines.append(f"\nStiffness values per case (K4, K5, K6) — {len(rows)} total rows:")
+            # Show first 30 and last 10 rows as sample
+            sample = rows[:30] + rows[-10:] if len(rows) > 40 else rows
+            for row in sample:
                 lines.append(
                     f"  {row[0]}: element {row[1]}, "
                     f"K4={row[2]:.3e}, K5={row[3]:.3e}, K6={row[4]:.3e}"
                 )
+            if len(rows) > 40:
+                lines.append(f"  ... ({len(rows) - 40} more rows omitted for brevity)")
     except Exception:
         pass
 
@@ -651,7 +710,7 @@ def gather_data_db_health(db_path):
                 lines.append(
                     f"  Case {row[1]} ({row[0]}){bl}: node {row[3]}, "
                     f"dof={row[4]}, type={row[5]}, area={row[6]:.6e}, "
-                    f"pk1={row[8]:.6e}@{row[7]:.2f}Hz"
+                    f"pk1={row[8]:.6e}@{row[7]:.2f}Hz" if row[7] is not None and row[8] is not None else f"pk1=N/A"
                 )
             if len(peak_rows) > 80:
                 lines.append(f"  ... and {len(peak_rows) - 80} more rows")
@@ -705,6 +764,8 @@ def gather_data_db_health(db_path):
                     f"  {row[0]}: {row[1]} rows, "
                     f"avg fn={row[2]:.2f} Hz, avg Q={row[3]:.1f}, "
                     f"avg GRMS={row[4]:.4e}, avg BW={row[5]:.2f} Hz"
+                    if all(x is not None for x in row[2:6]) else
+                    f"(some values NULL)"
                 )
 
             # Q factor distribution
@@ -855,16 +916,21 @@ def gather_data_psd_signatures(db_path, study_name=None):
         stiffs = case_stiffness.get(cid, [])
         if stiffs:
             # For multi-bolt studies, use the min K4 (most-loosened)
-            min_k4 = min(k4 for _, k4 in stiffs if k4 is not None)
+            valid_k4 = [k4 for _, k4 in stiffs if k4 is not None]
+            if not valid_k4:
+                continue
+            min_k4 = min(valid_k4)
             level_groups[min_k4].append(cid)
 
     lines.append("\n=== PEAK FREQUENCY SHIFTS BY STIFFNESS LEVEL ===")
     lines.append("(Mean shift across all cases at each stiffness level)")
 
+    # Only show top-8 most sensitive channels per level to keep token count manageable
     for k4_val in sorted(level_groups.keys()):
         case_ids = level_groups[k4_val]
         lines.append(f"\nK4 = {k4_val:.2e} N/mm  ({len(case_ids)} cases):")
         # Per channel: mean freq shift and mean amp ratio vs baseline
+        channel_stats = []
         for key in sorted(baseline_peaks.keys()):
             base_f, base_p, base_area = baseline_peaks[key]
             freq_deltas = []
@@ -882,11 +948,17 @@ def gather_data_psd_signatures(db_path, study_name=None):
                 mean_ratio = sum(amp_ratios) / len(amp_ratios)
                 max_ratio = max(amp_ratios)
                 pct_shift = (mean_df / base_f * 100) if base_f else 0
-                lines.append(
-                    f"    Node {key[0]}, DOF {key[1]}: "
-                    f"mean freq shift={mean_df:+.2f} Hz ({pct_shift:+.2f}%), "
-                    f"mean area ratio={mean_ratio:.3f}x, max area ratio={max_ratio:.3f}x"
-                )
+                channel_stats.append((key, mean_df, pct_shift, mean_ratio, max_ratio))
+        # Sort by max_ratio descending, show top 8
+        channel_stats.sort(key=lambda x: x[4], reverse=True)
+        for key, mean_df, pct_shift, mean_ratio, max_ratio in channel_stats[:8]:
+            lines.append(
+                f"    Node {key[0]}, DOF {key[1]}: "
+                f"mean freq shift={mean_df:+.2f} Hz ({pct_shift:+.2f}%), "
+                f"mean area ratio={mean_ratio:.3f}x, max area ratio={max_ratio:.3f}x"
+            )
+        if len(channel_stats) > 8:
+            lines.append(f"    ... ({len(channel_stats) - 8} more channels omitted)")
 
     # --- Miles equation data per stiffness level ---
     lines.append("\n=== MILES EQUATION: Q FACTOR & GRMS BY STIFFNESS LEVEL ===")
@@ -936,8 +1008,8 @@ def gather_data_psd_signatures(db_path, study_name=None):
             )
             level_miles = c.fetchall()
             if level_miles:
-                lines.append(f"\nK4 = {k4_val:.2e} ({len(cids)} cases):")
-                for lm in level_miles:
+                lines.append(f"\nK4 = {k4_val:.2e} ({len(cids)} cases, showing first 12 of {len(level_miles)} channels):")
+                for lm in level_miles[:12]:  # Cap at 12 channels per level
                     node, dof, dtype, mode = lm[0], lm[1], lm[2], lm[3]
                     avg_fn, avg_Q, avg_psd, avg_grms, avg_bw = lm[4], lm[5], lm[6], lm[7], lm[8]
                     min_Q, max_Q, min_grms, max_grms = lm[9], lm[10], lm[11], lm[12]
@@ -982,9 +1054,10 @@ def gather_data_psd_signatures(db_path, study_name=None):
     ranked = sorted(channel_max_ratio.items(), key=lambda x: x[1], reverse=True)
     for rank, (key, max_r) in enumerate(ranked[:8], 1):
         base_f = baseline_peaks[key][0]
+        base_f_str = f"{base_f:.2f} Hz" if base_f is not None else "N/A"
         lines.append(
             f"  {rank}. Node {key[0]}, DOF {key[1]} ({key[2]}): "
-            f"max ratio={max_r:.3f}x baseline, baseline peak={base_f:.2f} Hz"
+            f"max ratio={max_r:.3f}x baseline, baseline peak={base_f_str}"
         )
 
     # --- Sensitivity threshold: first stiffness level that causes >10% change ---
@@ -1110,20 +1183,74 @@ def gather_data_feature_matrix(data_file):
     if "feature_names" in data:
         names = data["feature_names"]
         lines.append(f"\nFeature names ({len(names)} total):")
-        for n in names[:20]:
+        for n in names[:30]:
             lines.append(f"  {n}")
-        if len(names) > 20:
-            lines.append(f"  ... and {len(names) - 20} more")
+        if len(names) > 30:
+            lines.append(f"  ... and {len(names) - 30} more")
+
+        # Feature naming legend so LLM can interpret results
+        lines.append("\n=== FEATURE NAMING CONVENTION ===")
+        lines.append("Each feature name follows the pattern: n{node}_{DOF}_{type}_{measurement}")
+        lines.append("")
+        lines.append("Node: physical location on structure (e.g., n222 = node 222)")
+        lines.append("DOF (Direction of Freedom):")
+        lines.append("  T1=translation-X, T2=translation-Y, T3=translation-Z")
+        lines.append("  R1=rotation-X, R2=rotation-Y, R3=rotation-Z")
+        lines.append("Data type: acc=acceleration, dis=displacement")
+        lines.append("")
+        lines.append("Measurement suffixes:")
+        lines.append("  _area     = area under PSD curve = RMS squared (total energy)")
+        lines.append("  _pk{N}a   = peak N amplitude (height of Nth resonance)")
+        lines.append("  _pk{N}f   = peak N frequency (Hz) (location of Nth resonance)")
+        lines.append("  _rms      = spectral RMS in band")
+        lines.append("  _d_rms    = delta RMS vs baseline (change from healthy)")
+        lines.append("  _d_band{N}= delta in frequency band N vs baseline")
+        lines.append("  _m{N}_fn     = Miles mode N: natural frequency (Hz)")
+        lines.append("  _m{N}_Q      = Miles mode N: quality factor (fn/bandwidth, higher=sharper resonance)")
+        lines.append("  _m{N}_PSDfn  = Miles mode N: PSD amplitude at natural frequency")
+        lines.append("  _m{N}_grms   = Miles mode N: GRMS = sqrt(pi/2 * fn * Q * PSD_fn)")
+        lines.append("  _m{N}_bw     = Miles mode N: half-power bandwidth (Hz)")
+        lines.append("")
+        lines.append("Example: n444_T1_acc_m1_grms = GRMS of 1st resonance mode, X-acceleration at node 444")
+        lines.append("Example: n222_R2_dis_area = total rotational displacement energy (Y-axis) at node 222")
+        lines.append("")
+        lines.append("=== CROSS-VALIDATION METHOD ===")
+        lines.append("Stratified k-fold CV: data split into k equal folds, each fold tested while")
+        lines.append("training on the remaining k-1 folds. Every sample gets exactly one prediction.")
+        lines.append("k is set to min(5, smallest_class_count) to ensure each class appears in every fold.")
+        lines.append("This is NOT an 80/20 split — it is a rotation that tests ALL data.")
 
     return "\n".join(lines)
 
 
 def gather_data_classification(data_file):
-    """Read classification report text."""
+    """Read classification report text with interpretation guide."""
     if not os.path.exists(data_file):
         return "Classification report not found: " + data_file
     with open(data_file, "r") as f:
-        return f.read()
+        content = f.read()
+
+    # Add interpretation guide for the LLM
+    guide = """
+=== INTERPRETATION GUIDE ===
+Confusion Matrix: rows = true class, columns = predicted class.
+  - Diagonal = correct predictions. Off-diagonal = misclassifications.
+  - Element 0 = healthy (no bolt loosened). Elements 2-10 = which CBUSH bolt is loosened.
+  - Adjacent bolt misclassifications (e.g., 9 predicted as 10) are physically expected
+    because neighboring bolts produce similar structural responses.
+
+Precision: of all cases predicted as element X, what fraction were truly element X?
+Recall: of all cases that ARE element X, what fraction did we correctly identify?
+F1-score: harmonic mean of precision and recall (balanced metric).
+
+Feature importance: higher value = more influential in classification decision.
+  - See Feature Matrix report for feature naming convention.
+  - Physically meaningful if top features correspond to nodes near the loosened bolts.
+
+CV accuracy: cross-validated accuracy (see Feature Matrix report for CV method details).
+  +/- value is standard deviation across folds (lower = more consistent).
+"""
+    return content + guide
 
 
 def gather_data_executive_summary(output_dir):
@@ -1189,6 +1316,7 @@ def main():
     parser.add_argument("--data-file", help="Primary data file to analyze")
     parser.add_argument("--config-file", help="Config file (for study_plan)")
     parser.add_argument("--db-path", help="Database path (for db_health)")
+    parser.add_argument("--study-name", help="Study name to filter (for psd_signatures)")
     parser.add_argument("--output-dir", required=True, help="Output directory for reports")
     parser.add_argument("--extra-data", help="Additional data to append (inline text)")
     args = parser.parse_args()
@@ -1208,7 +1336,7 @@ def main():
     elif report_type == "db_health":
         data = gather_data_db_health(args.db_path)
     elif report_type == "psd_signatures":
-        data = gather_data_psd_signatures(args.db_path)
+        data = gather_data_psd_signatures(args.db_path, study_name=args.study_name)
     elif report_type == "feature_matrix":
         data = gather_data_feature_matrix(args.data_file)
     elif report_type == "classification":
@@ -1218,6 +1346,13 @@ def main():
 
     if args.extra_data:
         data += "\n\n=== Additional Context ===\n" + args.extra_data
+
+    # Inject FEM utility baseline context into ALL reports
+    # This gives every LLM report access to model properties, natural frequencies,
+    # mode shapes, CBUSH stiffness, and bolt force data
+    fem_context = get_fem_utility_context()
+    if fem_context:
+        data += fem_context
 
     # Chain: append previous report for context (except executive_summary which reads all)
     if report_type != "executive_summary":

@@ -353,6 +353,7 @@ def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
         <VisFile type="image" filename="all_acceleration_dof_T1.png" source="analysisFolder"/>
         <VisFile type="image" filename="all_displacement_dof_T1.png" source="analysisFolder"/>
         <VisFile type="data" filename="randombeamx.pch" source="analysisFolder"/>
+        <VisFile type="data" filename="randombeamx.f06" source="analysisFolder"/>
         <VisFile type="data" filename="{bush_template}" source="analysisFolder"/>
 <primaryInput ref="HEEDS.Input.File.{structural_model}"/>
         <Reservation active="false" mode="share"/>

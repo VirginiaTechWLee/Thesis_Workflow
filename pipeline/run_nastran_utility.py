@@ -28,6 +28,56 @@ def log(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
 
+def _wait_for_nastran(f06_path, timeout=600, poll_interval=5):
+    """Wait for Nastran to finish by polling the .f06 file for END OF JOB.
+
+    nastranw.exe is a launcher — it spawns Nastran and returns immediately
+    with exit code 0. We must poll for completion markers in the output.
+
+    Returns True if Nastran completed, False if timed out.
+    """
+    log(f"  Waiting for Nastran to finish (polling {f06_path})...")
+    start = time.time()
+    last_size = 0
+
+    while time.time() - start < timeout:
+        time.sleep(poll_interval)
+
+        if not os.path.exists(f06_path):
+            elapsed = int(time.time() - start)
+            log(f"  [{elapsed}s] f06 not yet created...")
+            continue
+
+        size = os.path.getsize(f06_path)
+        if size != last_size:
+            last_size = size
+
+        # Check for completion marker
+        try:
+            with open(f06_path, 'r', errors='ignore') as f:
+                content = f.read()
+            if '* * * END OF JOB * * *' in content:
+                elapsed = int(time.time() - start)
+                log(f"  Nastran completed in {elapsed}s")
+                # Check for fatal errors
+                if 'USER FATAL MESSAGE' in content:
+                    log("  WARNING: FATAL messages found in f06!")
+                    # Extract fatal lines
+                    for line in content.splitlines():
+                        if 'FATAL' in line:
+                            log(f"    {line.strip()}")
+                    return False
+                return True
+        except Exception:
+            pass
+
+        elapsed = int(time.time() - start)
+        log(f"  [{elapsed}s] Still running... (f06 size: {size:,} bytes)")
+
+    log(f"  TIMEOUT: Nastran did not finish within {timeout}s")
+    return False
+
+
 def _cleanup_old_runs(base_dir, study_name, keep_last):
     """Delete oldest run folders for this study, keeping only the most recent `keep_last`."""
     # Find all timestamped folders matching this study name
@@ -131,47 +181,103 @@ def run_nastran_utility(config_path=None, analysis_type_override=None):
         # SOL 103 — modal analysis with scratch=no to preserve DBALL
         log("Running SOL 103 (modal analysis)...")
         dat_path = os.path.join(run_folder, structural_model)
+        model_stem = os.path.splitext(structural_model)[0].lower()
+        f06_path = os.path.join(run_folder, f"{model_stem}.f06")
         cmd = [nastran_exe, dat_path, 'scratch=no']
         log(f"  Command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, cwd=run_folder, capture_output=True, text=True, timeout=1800)
-        log(f"  Exit code: {result.returncode}")
-        if result.stdout:
-            log(f"  stdout: {result.stdout.strip()}")
-        if result.stderr:
-            log(f"  stderr: {result.stderr.strip()}")
+        result = subprocess.run(cmd, cwd=run_folder, capture_output=True, text=True, timeout=60)
+        log(f"  Launcher exit code: {result.returncode}")
 
-        if result.returncode != 0:
-            log("ERROR: SOL 103 failed")
-            # Still collect outputs for diagnostics
+        # nastranw.exe is a launcher — wait for actual completion
+        sol103_ok = _wait_for_nastran(f06_path, timeout=600)
+        if not sol103_ok:
+            log("ERROR: SOL 103 failed or timed out")
             _collect_outputs(run_folder)
             return run_folder
 
     if analysis_type == 'full':
-        # Wait for DBALL to be fully written
-        log("Waiting 10 seconds for DBALL to flush...")
-        time.sleep(10)
+        # Brief pause to ensure DBALL file handles are released
+        log("Waiting 5 seconds for DBALL to flush...")
+        time.sleep(5)
 
     if analysis_type in ('sol111', 'full'):
-        # SOL 111 — random response
+        # SOL 111 — random response (restart from SOL 103 DBALL)
         log("Running SOL 111 (random response)...")
         rand_path = os.path.join(run_folder, random_response)
+        rand_stem = os.path.splitext(random_response)[0].lower()
+        f06_sol111 = os.path.join(run_folder, f"{rand_stem}.f06")
         cmd = [nastran_exe, rand_path]
         log(f"  Command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, cwd=run_folder, capture_output=True, text=True, timeout=1800)
-        log(f"  Exit code: {result.returncode}")
-        if result.stdout:
-            log(f"  stdout: {result.stdout.strip()}")
-        if result.stderr:
-            log(f"  stderr: {result.stderr.strip()}")
+        result = subprocess.run(cmd, cwd=run_folder, capture_output=True, text=True, timeout=60)
+        log(f"  Launcher exit code: {result.returncode}")
 
-        if result.returncode != 0:
-            log("WARNING: SOL 111 returned non-zero exit code")
+        # Wait for actual completion
+        sol111_ok = _wait_for_nastran(f06_sol111, timeout=600)
+        if not sol111_ok:
+            log("ERROR: SOL 111 failed or timed out")
+            _collect_outputs(run_folder)
+            # Check for specific known issues
+            if os.path.exists(f06_sol111):
+                with open(f06_sol111, 'r', errors='ignore') as f:
+                    content = f.read()
+                if 'PARAM,DDRMM' in content:
+                    log("HINT: Add PARAM,DDRMM,-1 to bulk data for ESE support")
+            return run_folder
+
+        # Verify PCH file was produced (XYPUNCH output)
+        pch_files = globmod.glob(os.path.join(run_folder, '*.pch'))
+        if pch_files:
+            for pf in pch_files:
+                log(f"  PCH output: {os.path.basename(pf)} ({os.path.getsize(pf):,} bytes)")
+        else:
+            log("WARNING: No .pch file found — XYPUNCH may not have produced output")
 
     # --- Collect all Nastran outputs ---
     _collect_outputs(run_folder)
 
+    # --- Publish to stable path for downstream pipeline consumption ---
+    _publish_to_stable_path(run_folder, config)
+
     log(f"\nRun complete. All outputs in: {run_folder}")
     return run_folder
+
+
+def _publish_to_stable_path(run_folder, config):
+    """Copy report + images to a stable path so downstream scripts always find them.
+
+    Publishes to D:\\thesis_database\\fem_utility\\ (or db_dir/fem_utility from config).
+    This path never changes — every downstream script reads from here.
+    The timestamped folder is the archive; this is the live copy.
+    """
+    db_dir = config.get('paths', {}).get('db_dir', r'D:\thesis_database')
+    stable_dir = os.path.join(db_dir, 'fem_utility')
+    os.makedirs(stable_dir, exist_ok=True)
+
+    published = []
+    # Copy all reports and images
+    extensions = {'.md', '.pdf', '.docx', '.png', '.jpg', '.svg'}
+    for fname in os.listdir(run_folder):
+        ext = os.path.splitext(fname)[1].lower()
+        if ext in extensions:
+            src = os.path.join(run_folder, fname)
+            dst = os.path.join(stable_dir, fname)
+            shutil.copy2(src, dst)
+            published.append(fname)
+
+    # Write a manifest so downstream scripts know what's available
+    manifest_path = os.path.join(stable_dir, 'manifest.txt')
+    with open(manifest_path, 'w') as f:
+        f.write(f"# FEM Utility — published {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"# Source: {run_folder}\n")
+        for fname in sorted(published):
+            f.write(f"{fname}\n")
+
+    if published:
+        log(f"Published {len(published)} files to {stable_dir}")
+        for fname in published:
+            log(f"  -> {fname}")
+    else:
+        log(f"WARNING: No reports or images found to publish from {run_folder}")
 
 
 def _collect_outputs(run_folder):

@@ -10,9 +10,13 @@ Usage:
     python Scripts/train_classifier.py --input data.npz --model-output model.pkl --report report.txt
 """
 import argparse
+import os
 import sys
 import textwrap
 import time
+
+# Force unbuffered output so progress is visible in real-time (logs, MCP, CI)
+os.environ["PYTHONUNBUFFERED"] = "1"
 from pathlib import Path
 
 import joblib
@@ -127,17 +131,24 @@ def train_and_evaluate(
 
     results = {}
     for name, model in models.items():
-        print(f"\n--- {name} ---")
+        print(f"\n--- {name} ---", flush=True)
         t0 = time.time()
 
-        # Cross-val predictions (gives per-sample predictions for full report)
-        y_pred = cross_val_predict(model, X_scaled, y, cv=cv)
-        elapsed = time.time() - t0
-
-        # Per-fold accuracy for mean/std
+        # Manual fold loop with progress reporting
+        y_pred = np.zeros_like(y)
         fold_accs = []
-        for train_idx, test_idx in cv.split(X_scaled, y):
-            fold_accs.append((y_pred[test_idx] == y[test_idx]).mean())
+        for fold_i, (train_idx, test_idx) in enumerate(cv.split(X_scaled, y), 1):
+            fold_t0 = time.time()
+            print(f"  Fold {fold_i}/{k}: training on {len(train_idx)} samples, "
+                  f"testing on {len(test_idx)} ...", end="", flush=True)
+            clone = type(model)(**model.get_params())
+            clone.fit(X_scaled[train_idx], y[train_idx])
+            y_pred[test_idx] = clone.predict(X_scaled[test_idx])
+            fold_acc = (y_pred[test_idx] == y[test_idx]).mean()
+            fold_accs.append(fold_acc)
+            fold_elapsed = time.time() - fold_t0
+            print(f" acc={fold_acc:.4f} ({fold_elapsed:.1f}s)", flush=True)
+        elapsed = time.time() - t0
         mean_acc = np.mean(fold_accs)
         std_acc = np.std(fold_accs)
 

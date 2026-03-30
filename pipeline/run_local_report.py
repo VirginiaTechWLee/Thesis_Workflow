@@ -47,16 +47,17 @@ from generate_pipeline_report import (
 # Report types that only need a DB path (no separate data file)
 DB_REPORT_TYPES = {"db_health", "psd_signatures"}
 
+# Report types that can auto-discover their data files from the repo/DB directory
+AUTO_DISCOVER_TYPES = {"feature_matrix", "classification", "fem_health", "study_plan", "heeds_status"}
+
 # Report types that read prior reports from output_dir
 SUMMARY_REPORT_TYPES = {"executive_summary"}
 
-# Report types that need a data file
-FILE_REPORT_TYPES = {
-    "fem_health", "study_plan", "heeds_status", "feature_matrix", "classification"
-}
+# Report types that ALWAYS need an explicit data file (none — all can auto-discover now)
+FILE_REPORT_TYPES = set()
 
 # All report types that can be generated with just --db_path
-LOCAL_DB_TYPES = list(DB_REPORT_TYPES | SUMMARY_REPORT_TYPES)
+LOCAL_DB_TYPES = list(DB_REPORT_TYPES | SUMMARY_REPORT_TYPES | AUTO_DISCOVER_TYPES)
 
 
 def resolve_study_id(db_path, study_name):
@@ -96,6 +97,73 @@ def generate_one_report(report_type, db_path, output_dir, data_file=None,
             data = gather_data_db_health(db_path)
         elif report_type == "psd_signatures":
             data = gather_data_psd_signatures(db_path, study_name=study_name)
+    elif report_type in AUTO_DISCOVER_TYPES:
+        # Auto-discover data files from DB directory or repo, or use explicit --data_file
+        resolved_file = data_file
+        resolved_config = config_file
+        if not resolved_file:
+            db_dir = os.path.dirname(db_path) if db_path else None
+            # Discover repo root: walk up from this script's location
+            repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+            if report_type == "feature_matrix" and db_dir:
+                resolved_file = os.path.join(db_dir, "training_matrix.npz")
+            elif report_type == "classification" and db_dir:
+                resolved_file = os.path.join(db_dir, "classification_report.txt")
+            elif report_type == "fem_health":
+                # Look for .dat files in fem_input/ or templates/
+                for candidate in [
+                    os.path.join(repo_root, "fem_input", "Fixed_base_beam.dat"),
+                    os.path.join(repo_root, "templates", "RandomBeamX.dat"),
+                ]:
+                    if os.path.exists(candidate):
+                        resolved_file = candidate
+                        break
+                if not resolved_config:
+                    cfg_candidate = os.path.join(repo_root, "fem_input", "config.yaml")
+                    if os.path.exists(cfg_candidate):
+                        resolved_config = cfg_candidate
+            elif report_type == "study_plan":
+                # Look for .heeds files in heeds/projects/
+                import glob
+                heeds_dir = os.path.join(repo_root, "heeds", "projects")
+                heeds_files = sorted(glob.glob(os.path.join(heeds_dir, "*.heeds")))
+                if heeds_files:
+                    resolved_file = heeds_files[-1]  # Latest .heeds file
+                if not resolved_config:
+                    cfg_candidate = os.path.join(repo_root, "fem_input", "config.yaml")
+                    if os.path.exists(cfg_candidate):
+                        resolved_config = cfg_candidate
+            elif report_type == "heeds_status":
+                # Look for HEEDS log files
+                for candidate in [
+                    os.path.join(repo_root, "pipeline", "HEEDSMDO.log"),
+                ]:
+                    if os.path.exists(candidate):
+                        resolved_file = candidate
+                        break
+
+            if resolved_file and os.path.exists(resolved_file):
+                print(f"Auto-discovered: {resolved_file}")
+                if resolved_config:
+                    print(f"Auto-discovered config: {resolved_config}")
+            elif resolved_file:
+                print(f"SKIP: {report_type} — file not found: {resolved_file}")
+                return None
+            else:
+                print(f"SKIP: {report_type} — could not auto-discover data file")
+                return None
+
+        if report_type == "feature_matrix":
+            data = gather_data_feature_matrix(resolved_file)
+        elif report_type == "classification":
+            data = gather_data_classification(resolved_file)
+        elif report_type == "fem_health":
+            data = gather_data_fem_health(resolved_file, resolved_config)
+        elif report_type == "study_plan":
+            data = gather_data_study_plan(resolved_file, resolved_config)
+        elif report_type == "heeds_status":
+            data = gather_data_heeds_status(resolved_file)
     elif report_type == "executive_summary":
         data = gather_data_executive_summary(output_dir)
     elif report_type in FILE_REPORT_TYPES:
@@ -108,10 +176,6 @@ def generate_one_report(report_type, db_path, output_dir, data_file=None,
             data = gather_data_study_plan(data_file, config_file)
         elif report_type == "heeds_status":
             data = gather_data_heeds_status(data_file)
-        elif report_type == "feature_matrix":
-            data = gather_data_feature_matrix(data_file)
-        elif report_type == "classification":
-            data = gather_data_classification(data_file)
     else:
         print(f"ERROR: Unknown report type '{report_type}'")
         sys.exit(1)
@@ -205,6 +269,15 @@ def main():
                     rt, args.db_path, args.output_dir, study_name=args.study
                 )
                 generated.append((rt, path))
+            elif rt in AUTO_DISCOVER_TYPES and (args.data_file or args.db_path):
+                path = generate_one_report(
+                    rt, args.db_path, args.output_dir,
+                    data_file=args.data_file, study_name=args.study,
+                )
+                if path:  # None means file not found, skip silently
+                    generated.append((rt, path))
+                else:
+                    skipped.append(rt)
             elif rt in FILE_REPORT_TYPES and args.data_file:
                 path = generate_one_report(
                     rt, args.db_path, args.output_dir,

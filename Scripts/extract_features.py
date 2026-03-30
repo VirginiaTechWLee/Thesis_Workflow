@@ -12,9 +12,13 @@ Usage:
 """
 import argparse
 import gc
+import os
 import sqlite3
 import sys
 import time
+
+# Force unbuffered output so progress is visible in real-time (logs, MCP, CI)
+os.environ["PYTHONUNBUFFERED"] = "1"
 from pathlib import Path
 
 import numpy as np
@@ -505,6 +509,7 @@ def build_training_matrix(
     ratio_threshold: float = 0.5,
     spectral_dof: str = None,
     spectral_dtype: str = None,
+    noise_floor: float = 1e-5,
 ) -> pd.DataFrame:
     """
     Main entry point.  Discovers structure from the database, extracts
@@ -629,6 +634,28 @@ def build_training_matrix(
     y_severity = merged["severity"].values.astype(int)
     y_binary = merged["label_binary"].values.astype(int)
 
+    # ------------------------------------------------------------------
+    # Data cleaning: apply noise floor
+    # Values below the noise floor are physically meaningless (numerical
+    # artifacts from near-zero PSD channels). Setting them to zero prevents
+    # the classifier from training on sensor-unmeasurable signals.
+    # The noise floor is applied to amplitude features only (areas, peaks,
+    # PSD values, GRMS) — NOT to frequency or Q features.
+    # ------------------------------------------------------------------
+    amplitude_tags = ['_area', '_pk1a', '_pk2a', '_pk3a', '_PSDfn', '_grms',
+                      '_rms', '_band']
+    n_cleaned = 0
+    n_values_zeroed = 0
+    for i, col in enumerate(feature_cols):
+        if any(tag in col for tag in amplitude_tags):
+            below = np.abs(X[:, i]) < noise_floor
+            n_values_zeroed += below.sum()
+            X[:, i] = np.where(below, 0.0, X[:, i])
+            if below.any():
+                n_cleaned += 1
+    print(f"  Noise floor applied: {noise_floor:.0e}")
+    print(f"    {n_cleaned} columns affected, {n_values_zeroed:,d} values zeroed")
+
     # Drop zero-variance columns
     variances = X.var(axis=0)
     keep_mask = variances > 0
@@ -639,6 +666,7 @@ def build_training_matrix(
     # Log-transform amplitude features (rms, band power) to compress
     # orders-of-magnitude ranges (1e-42 to 1e+08) into classifier-friendly scale.
     # Uses sign-preserving log: sign(x) * log10(|x| + 1) so negatives survive.
+    # Values that were zeroed by noise floor → log10(0 + 1) = 0, which is clean.
     n_log = 0
     for i, col in enumerate(feature_cols):
         if any(tag in col for tag in ['_rms', '_band', '_d_rms', '_d_band',
@@ -733,6 +761,14 @@ if __name__ == "__main__":
         default=None,
         help="Override primary data type for spectral features (default: auto-detect)",
     )
+    parser.add_argument(
+        "--noise-floor",
+        type=float,
+        default=1e-5,
+        help="Amplitude values below this threshold are zeroed during cleaning. "
+             "Prevents classifier from training on sensor-unmeasurable numerical "
+             "artifacts. Aligned with typical sensor noise floors. Default: 1e-5.",
+    )
     args = parser.parse_args()
 
     try:
@@ -742,6 +778,7 @@ if __name__ == "__main__":
             ratio_threshold=args.ratio_threshold,
             spectral_dof=args.spectral_dof,
             spectral_dtype=args.spectral_dtype,
+            noise_floor=args.noise_floor,
         )
     except Exception:
         import traceback

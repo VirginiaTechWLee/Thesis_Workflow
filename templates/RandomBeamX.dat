@@ -19,12 +19,13 @@ $
 $
   SET 1 = 1 $ base node ( the constrained node )
 $ springs
-  SET 2 = 1 $ cbush elem id at that same base 
+  SET 2 = 1,2,3,4,5,6,7,8,9,10 $ all 10 CBUSH element IDs for force recovery 
 $
 
   DISPLACEMENT(PHASE,PSDF) = 1
   ACCELERATION(PHASE,PSDF) = 1
   FORCE(PLOT,PHASE,CORNER,PSDF) = 2
+  ESE = ALL $ strain energy for all elements
   $
   SDAMPING = 2001 $ pointing to 2% damping that we set up
   FREQ     = 3001 $ pointing to frequency setup
@@ -38,6 +39,9 @@ $
   INCLUDE 'recoveries.blk'
 $
 BEGIN BULK
+$----------------------------------------------------------------------
+$ Enable data recovery for ESE (strain energy) in frequency response
+PARAM,DDRMM,-1
 $----------------------------------------------------------------------
 SPC1           1  123456       1
 $----------------------------------------------------------------------
