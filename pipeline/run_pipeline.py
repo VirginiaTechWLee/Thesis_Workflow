@@ -611,6 +611,20 @@ def main():
         "--log-file", metavar="PATH",
         help="Write a copy of all log output to this file.",
     )
+    parser.add_argument(
+        "--chain", nargs="*", metavar="STUDY",
+        help=(
+            "Run multiple studies in sequence (A→B→C→D). "
+            "FEM validation runs once, then HEEDS+import+ML repeats per study, "
+            "reports run once at the end on the combined dataset.\n"
+            "Presets: --chain all (runs A B C D)\n"
+            "Custom:  --chain study_A_single_bolt_sweep study_B_two_bolt_sweep"
+        ),
+    )
+    parser.add_argument(
+        "--study", metavar="NAME",
+        help="Override study name from config.yaml for a single run.",
+    )
 
     args = parser.parse_args()
     interactive = not args.non_interactive
@@ -624,6 +638,204 @@ def main():
     if args.log_file:
         os.makedirs(os.path.dirname(os.path.abspath(args.log_file)), exist_ok=True)
         _LOG_FILE = open(args.log_file, "a", encoding="utf-8")
+
+    # --- Chain mode: run multiple studies sequentially ---
+    if args.chain is not None:
+        run_chain(args)
+        return
+
+    # --- Single study mode ---
+    if args.study:
+        _update_config_study_name(args.study)
+
+    run_single(args)
+
+
+# ---------------------------------------------------------------------------
+# Study chain presets
+# ---------------------------------------------------------------------------
+CHAIN_PRESETS = {
+    "all": [
+        "study_A_single_bolt_sweep",
+        "study_B_two_bolt_sweep",
+        "study_C_three_bolt_sweep",
+        "study_D_monte_carlo",
+    ],
+    "AB": [
+        "study_A_single_bolt_sweep",
+        "study_B_two_bolt_sweep",
+    ],
+    "ABC": [
+        "study_A_single_bolt_sweep",
+        "study_B_two_bolt_sweep",
+        "study_C_three_bolt_sweep",
+    ],
+}
+
+# Expected design counts for each study (for logging only)
+STUDY_DESIGNS = {
+    "study_A_single_bolt_sweep": 73,
+    "study_B_two_bolt_sweep": 288,
+    "study_C_three_bolt_sweep": 672,
+    "study_D_monte_carlo": 501,
+}
+
+
+def _update_config_study_name(study_name):
+    """Update study.name in config.yaml so downstream scripts pick it up."""
+    config_path = os.path.join(os.path.dirname(PIPELINE_DIR), "fem_input", "config.yaml")
+    if not os.path.isfile(config_path):
+        log(f"config.yaml not found: {config_path}", level="WARN")
+        return
+
+    import re
+    with open(config_path, 'r') as f:
+        content = f.read()
+
+    # Update study name
+    content = re.sub(
+        r'(name:\s*)(\S+)',
+        rf'\g<1>{study_name}',
+        content,
+        count=1,
+    )
+
+    # Update expected_designs if known
+    if study_name in STUDY_DESIGNS:
+        content = re.sub(
+            r'(expected_designs:\s*)\d+',
+            rf'\g<1>{STUDY_DESIGNS[study_name]}',
+            content,
+            count=1,
+        )
+
+    # Update study type
+    type_map = {
+        "study_A_single_bolt_sweep": "single_bolt_sweep",
+        "study_B_two_bolt_sweep": "two_bolt_sweep",
+        "study_C_three_bolt_sweep": "three_bolt_sweep",
+        "study_D_monte_carlo": "monte_carlo",
+    }
+    if study_name in type_map:
+        content = re.sub(
+            r'(type:\s*)(\S+)(.*# sweep)',
+            rf'\g<1>{type_map[study_name]}\g<3>',
+            content,
+            count=1,
+        )
+
+    with open(config_path, 'w') as f:
+        f.write(content)
+
+    log(f"Updated config.yaml: study.name = {study_name}")
+
+
+def run_chain(args):
+    """Run multiple studies in sequence: FEM once → (HEEDS+import+ML) per study → reports once."""
+    interactive = not args.non_interactive
+
+    # Resolve study list
+    studies = args.chain
+    if not studies or studies == []:
+        studies = CHAIN_PRESETS["all"]
+    elif len(studies) == 1 and studies[0] in CHAIN_PRESETS:
+        studies = CHAIN_PRESETS[studies[0]]
+
+    log_separator("THESIS PIPELINE -- CHAINED STUDIES")
+    log(f"Studies to run: {len(studies)}")
+    for i, s in enumerate(studies, 1):
+        designs = STUDY_DESIGNS.get(s, "?")
+        log(f"  {i}. {s} ({designs} designs)")
+    log(f"Mode: {'non-interactive' if not interactive else 'interactive'}")
+    print("", flush=True)
+
+    if not check_python():
+        log("Aborting -- Anaconda Python not available.", level="FATAL")
+        sys.exit(1)
+
+    config = load_config()
+    t_chain_start = time.perf_counter()
+    chain_results = {}  # study_name -> {step: rc}
+
+    # --- Step 1: FEM Utility (once) ---
+    if not getattr(args, 'skip_fem', False) and args.from_step <= 1:
+        rc = step_1_fem_utility(config)
+        if rc != 0 and not should_continue("FEM Utility", interactive):
+            sys.exit(1)
+    else:
+        log("Step 1 (FEM Utility): SKIPPED")
+
+    # --- For each study: HEEDS → Import → Miles → Features → Train ---
+    for study_idx, study_name in enumerate(studies, 1):
+        log_separator(f"STUDY {study_idx}/{len(studies)}: {study_name}")
+
+        # Update config.yaml for this study
+        _update_config_study_name(study_name)
+        config = load_config()  # reload
+
+        study_results = {}
+
+        # Steps 2-6 per study
+        per_study_steps = [
+            (2, "HEEDS",             step_2_heeds,    "skip_heeds"),
+            (3, "Database Import",   step_3_import,   "skip_import"),
+            (4, "Miles Equation",    step_4_miles,    "skip_import"),
+            (5, "Feature Extraction", step_5_features, "skip_ml"),
+            (6, "Train Classifier",  step_6_train,    "skip_ml"),
+        ]
+
+        for step_num, name, func, skip_attr in per_study_steps:
+            if step_num < args.from_step:
+                study_results[step_num] = "skipped"
+                continue
+            if getattr(args, skip_attr, False):
+                study_results[step_num] = "skipped"
+                continue
+
+            rc = func(config)
+            study_results[step_num] = rc
+
+            if rc != 0:
+                log(f"{study_name} / {name} FAILED (rc={rc})", level="ERROR")
+                if not should_continue(f"{study_name}/{name}", interactive):
+                    log("Aborting chain.", level="FATAL")
+                    sys.exit(1)
+                break  # skip remaining steps for this study
+
+        chain_results[study_name] = study_results
+
+    # --- Steps 7-8: Reports (once, on combined dataset) ---
+    if not getattr(args, 'skip_reports', False):
+        log_separator("FINAL REPORTS (combined dataset)")
+        step_7_reports(config)
+        step_8_docx(config)
+    else:
+        log("Steps 7-8 (Reports): SKIPPED")
+
+    # --- Chain Summary ---
+    elapsed = time.perf_counter() - t_chain_start
+    log_separator("CHAIN SUMMARY")
+    for study_name, results in chain_results.items():
+        failures = sum(1 for rc in results.values() if rc not in (0, "skipped"))
+        status = "OK" if failures == 0 else f"{failures} FAILURE(S)"
+        log(f"  {study_name:45s} {status}")
+    log(f"Total elapsed: {elapsed:.0f}s ({elapsed/60:.1f} min, {elapsed/3600:.1f} hr)")
+
+    total_failures = sum(
+        1 for r in chain_results.values()
+        for rc in r.values() if rc not in (0, "skipped")
+    )
+    if total_failures:
+        log(f"Chain finished with {total_failures} failure(s).", level="WARN")
+        sys.exit(1)
+    else:
+        log("Chain finished successfully — all studies complete.")
+        sys.exit(0)
+
+
+def run_single(args):
+    """Run a single study through all 8 steps (original behavior)."""
+    interactive = not args.non_interactive
 
     # Load optional config
     config = load_config()
