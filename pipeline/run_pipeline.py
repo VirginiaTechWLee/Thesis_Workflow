@@ -775,13 +775,16 @@ def run_chain(args):
 
         study_results = {}
 
-        # Steps 2-6 per study
+        # Steps 2-8 per study: HEEDS → import → ML → reports → Word doc
+        # Each study gets its own reports so you can see cumulative improvement
         per_study_steps = [
-            (2, "HEEDS",             step_2_heeds,    "skip_heeds"),
-            (3, "Database Import",   step_3_import,   "skip_import"),
-            (4, "Miles Equation",    step_4_miles,    "skip_import"),
-            (5, "Feature Extraction", step_5_features, "skip_ml"),
-            (6, "Train Classifier",  step_6_train,    "skip_ml"),
+            (2, "HEEDS",             step_2_heeds,      "skip_heeds"),
+            (3, "Database Import",   step_3_import,     "skip_import"),
+            (4, "Miles Equation",    step_4_miles,      "skip_import"),
+            (5, "Feature Extraction", step_5_features,  "skip_ml"),
+            (6, "Train Classifier",  step_6_train,      "skip_ml"),
+            (7, "LLM Reports",      step_7_reports,     "skip_reports"),
+            (8, "Final Word Report", step_8_docx,       "skip_reports"),
         ]
 
         for step_num, name, func, skip_attr in per_study_steps:
@@ -803,14 +806,6 @@ def run_chain(args):
                 break  # skip remaining steps for this study
 
         chain_results[study_name] = study_results
-
-    # --- Steps 7-8: Reports (once, on combined dataset) ---
-    if not getattr(args, 'skip_reports', False):
-        log_separator("FINAL REPORTS (combined dataset)")
-        step_7_reports(config)
-        step_8_docx(config)
-    else:
-        log("Steps 7-8 (Reports): SKIPPED")
 
     # --- Chain Summary ---
     elapsed = time.perf_counter() - t_chain_start
