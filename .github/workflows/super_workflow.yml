@@ -414,7 +414,7 @@ jobs:
           Log "HEEDS monitor timeout: $timeoutSec seconds (informational only)"
           Log ""
           Log "NOTE: Large FEM studies can take DAYS. The pipeline waits for"
-          Log "HEEDS to signal 'End of HEEDS run' — there is no artificial cutoff."
+          Log "HEEDS to signal 'End of HEEDS run' - there is no artificial cutoff."
           Log ""
           Log "IF HEEDS IS INTERRUPTED (machine restart, power loss, etc.):"
           Log "  1. Open HEEDS GUI: $heedsFile"
@@ -426,7 +426,7 @@ jobs:
           Log "  7. Select 'Continue from completed design data'"
           Log "  8. Select 'Write the input files and restart the study'"
           Log "  9. Uncheck 'Back up current study data' (saves time/disk)"
-          Log "  10. Click RESTART — HEEDS resumes from where it left off"
+          Log "  10. Click RESTART - HEEDS resumes from where it left off"
           Log ""
           Log "After HEEDS finishes via GUI, re-trigger the pipeline with"
           Log "skip_if_exists to import results and generate reports."
@@ -498,7 +498,7 @@ jobs:
 
           # Monitor progress
           # Completion = HEEDS signals "End of HEEDS run". PCH count is logged but NEVER a gate.
-          # expectedDesigns is a display target only — not a pass/fail threshold.
+          # expectedDesigns is a display target only - not a pass/fail threshold.
           Log ""
           Log "========================================================"
           Log "  MONITORING PROGRESS"
@@ -535,7 +535,7 @@ jobs:
             $heedsTag = if ($heedsFinished) { " [HEEDS DONE]" } else { "" }
             Log "[$bar] $completed/$expectedDesigns PCH | POST_0 folders: $totalFolders | Elapsed: $([int]$elapsed)s$heedsTag"
 
-            # PRIMARY COMPLETION: HEEDS signals done — accept whatever PCH count we got
+            # PRIMARY COMPLETION: HEEDS signals done - accept whatever PCH count we got
             if ($heedsFinished) {
               $mins = [math]::Round($elapsed/60, 1)
               # Final tally of missing PCH files (informational only)
@@ -559,7 +559,7 @@ jobs:
             if ($completed -eq $lastCount) {
               $stallTime += 15
               if ($stallTime -ge $maxStall -and ($stallTime % 600 -eq 0)) {
-                Log "WARNING: PCH count stalled at $completed for $([int]($stallTime/60)) minutes — HEEDS may be working on a difficult design"
+                Log "WARNING: PCH count stalled at $completed for $([int]($stallTime/60)) minutes - HEEDS may be working on a difficult design"
                 Log "         This is NOT an error. Large FEMs can take a long time per design."
               }
             } else {
