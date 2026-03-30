@@ -749,6 +749,46 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Log "WARNING: PSD signature report failed (non-fatal)"; $global:LASTEXITCODE = 0 }
 
       # ================================================================
+      # STAGE 6b: COMPUTE MILES EQUATION
+      # ================================================================
+      - name: Compute Miles equation
+        shell: powershell
+        run: |
+          function Log { param([string]$Message) Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" }
+
+          $dbPath = "${{ steps.config.outputs.DB_PATH }}"
+          $studyName = "${{ steps.config.outputs.STUDY_NAME }}"
+
+          Log "========================================================"
+          Log "  COMPUTING MILES EQUATION (fn, Q, PSD_fn, GRMS, bandwidth)"
+          Log "========================================================"
+          Log "Database: $dbPath"
+          Log "Study: $studyName"
+          Log "Miles equation: GRMS = sqrt(pi/2 * fn * Q * PSD_fn)"
+          Log "Q = fn / half-power bandwidth"
+
+          & "${{ vars.PYTHON_PATH }}" heeds/database/compute_miles.py `
+            --db_path "$dbPath" `
+            --study "$studyName" `
+            --reset
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "WARNING: Miles computation failed (non-fatal, features will be partial)"
+            $global:LASTEXITCODE = 0
+          }
+
+          # Also compute for baseline if not already done
+          & "${{ vars.PYTHON_PATH }}" heeds/database/compute_miles.py `
+            --db_path "$dbPath" `
+            --study "study_baseline"
+
+          if ($LASTEXITCODE -ne 0) {
+            Log "WARNING: Miles computation for baseline failed (non-fatal)"
+            $global:LASTEXITCODE = 0
+          }
+          Log "========================================================"
+
+      # ================================================================
       # STAGE 7: ML TRAINING
       # ================================================================
       - name: Extract features

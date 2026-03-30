@@ -16,7 +16,8 @@ if study_type_override:
         'study_A': ('single_bolt_sweep', 'study_A_single_bolt_sweep'),
         'study_B': ('two_bolt_sweep', 'study_B_two_bolt_sweep'),
         'study_C': ('three_bolt_sweep', 'study_C_three_bolt_sweep'),
-        'study_D': ('all_bolt_sweep', 'study_D_all_bolt_sweep'),
+        'study_D': ('monte_carlo', 'study_D_monte_carlo'),
+        'study_E': ('all_bolt_sweep', 'study_E_all_bolt_sweep'),
     }
     if study_type_override in study_type_map:
         stype, sname = study_type_map[study_type_override]
@@ -35,6 +36,9 @@ if study_type_override:
             study['expected_designs'] = comb(n_bolts, 3) * n_non_baseline
         elif stype == 'all_bolt_sweep':
             study['expected_designs'] = n_non_baseline
+        elif stype == 'monte_carlo':
+            n_samples = config.get('monte_carlo', {}).get('n_samples', 500)
+            study['expected_designs'] = n_samples + 1  # +1 for baseline design
         print(f"# Override: study_type={study_type_override} -> type={stype}, name={sname}", file=sys.stderr)
 
 print('STUDY_NAME=' + str(study['name']))

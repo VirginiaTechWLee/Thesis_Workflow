@@ -32,7 +32,8 @@ def generate_heeds_project(config_path=None, output_path=None):
             'study_A': ('single_bolt_sweep', 'study_A_single_bolt_sweep'),
             'study_B': ('two_bolt_sweep', 'study_B_two_bolt_sweep'),
             'study_C': ('three_bolt_sweep', 'study_C_three_bolt_sweep'),
-            'study_D': ('all_bolt_sweep', 'study_D_all_bolt_sweep'),
+            'study_D': ('monte_carlo', 'study_D_monte_carlo'),
+            'study_E': ('all_bolt_sweep', 'study_E_all_bolt_sweep'),
         }
         if study_type_override in study_type_map:
             stype, sname = study_type_map[study_type_override]
@@ -59,8 +60,15 @@ def generate_heeds_project(config_path=None, output_path=None):
         expected_designs = _comb(n_bolts, 3) * n_non_baseline
     elif study_type == 'all_bolt_sweep':
         expected_designs = n_non_baseline
+    elif study_type == 'monte_carlo':
+        n_samples = config.get('monte_carlo', {}).get('n_samples', 500)
+        expected_designs = n_samples + 1  # +1 for baseline design
     else:
         expected_designs = study.get('expected_designs', len(sweep_levels))
+
+    # Pass monte_carlo config through to _build_xml via the study dict
+    if study_type == 'monte_carlo':
+        study['_monte_carlo_config'] = config.get('monte_carlo', {})
 
     if output_path is None:
         output_path = f"{study_name}.heeds"
@@ -225,7 +233,7 @@ def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
                         row_vals.append(f'    {baseline_idx}')
                 data_rows.append(','.join(row_vals))
     elif study_type == 'all_bolt_sweep':
-        # All-bolt sweep: all bolts loosen together (Study D — fully degraded)
+        # All-bolt sweep: all bolts loosen together (Study E — fully degraded)
         for level_i, level in enumerate(sweep_levels):
             set_idx = level_i + 1
             if set_idx == baseline_idx:
@@ -235,6 +243,36 @@ def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
             name = f"all_bolts_1e{int(e_part)}"
             design_name_lines.append(f'        <Design name="{name}" map="false" resp="false"/>')
             data_rows.append(','.join([f'    {set_idx}'] * len(variables)))
+    elif study_type == 'monte_carlo':
+        # Monte Carlo: random independent sampling of discrete stiffness levels
+        import numpy as np
+        mc_config = study.get('_monte_carlo_config', {})
+        n_samples = mc_config.get('n_samples', 500)
+        seed = mc_config.get('seed', 42)
+        rng = np.random.default_rng(seed)
+
+        # All level indices (1-based): includes baseline — Monte Carlo can randomly assign tight bolts
+        all_indices = list(range(1, num_levels + 1))
+
+        # Design 1: baseline (all bolts at baseline)
+        design_name_lines.append(f'        <Design name="monte_carlo_001" map="false" resp="false"/>')
+        data_rows.append(','.join([f'    {baseline_idx}'] * len(variables)))
+
+        # Designs 2 through n_samples+1: random sampling from ALL levels
+        for i in range(2, n_samples + 2):
+            name = f"monte_carlo_{i:03d}"
+            design_name_lines.append(f'        <Design name="{name}" map="false" resp="false"/>')
+            # Assign one random level per bolt, then K4/K5/K6 all get same index
+            bolt_levels = {}
+            for var in variables:
+                var_bolt = int(var.split('bolt')[1])
+                if var_bolt not in bolt_levels:
+                    bolt_levels[var_bolt] = int(rng.choice(all_indices))
+            row_vals = []
+            for var in variables:
+                var_bolt = int(var.split('bolt')[1])
+                row_vals.append(f'    {bolt_levels[var_bolt]}')
+            data_rows.append(','.join(row_vals))
     else:
         # Default sweep: all bolts get the same level simultaneously
         for level_i, level in enumerate(sweep_levels):

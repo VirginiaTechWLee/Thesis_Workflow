@@ -119,6 +119,28 @@ def create_schema(conn):
         )
     ''')
     
+    # Miles equation summary table - per resonance per node/DOF
+    # Captures each input to Miles' equation independently for ML features
+    # GRMS = sqrt(pi/2 * fn * Q * PSD_fn)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS miles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER NOT NULL,
+            node_id INTEGER NOT NULL,
+            dof TEXT NOT NULL,
+            data_type TEXT DEFAULT 'acceleration',
+            mode_number INTEGER NOT NULL,
+            fn REAL NOT NULL,
+            Q REAL,
+            PSD_fn REAL,
+            grms REAL,
+            bandwidth REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (case_id) REFERENCES cases(case_id),
+            UNIQUE(case_id, node_id, dof, data_type, mode_number)
+        )
+    ''')
+
     # Create indexes for faster queries
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_psd_case ON psd_data(case_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_psd_node ON psd_data(node_id)')
@@ -126,6 +148,7 @@ def create_schema(conn):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_peaks_case ON peaks(case_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_parameters_case ON parameters(case_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_cases_study ON cases(study_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_miles_case ON miles(case_id)')
     
     conn.commit()
     print("Database schema created successfully.")
@@ -135,7 +158,7 @@ def reset_database(conn):
     """Drop all tables and recreate schema."""
     cursor = conn.cursor()
     
-    tables = ['psd_data', 'peaks', 'parameters', 'cases', 'studies']
+    tables = ['miles', 'psd_data', 'peaks', 'parameters', 'cases', 'studies']
     for table in tables:
         cursor.execute(f'DROP TABLE IF EXISTS {table}')
     

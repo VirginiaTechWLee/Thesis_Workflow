@@ -443,6 +443,60 @@ def extract_spectral_and_delta_features(
 
 
 # ---------------------------------------------------------------------------
+# Miles equation features (fn, Q, PSD_fn, grms, bandwidth per mode per node)
+# ---------------------------------------------------------------------------
+def extract_miles_features(
+    conn: sqlite3.Connection, cases: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    From the miles table extract per-case features:
+      - fn, Q, PSD_fn, grms, bandwidth for each (node, dof, data_type, mode_number)
+    Returns a DataFrame with one row per case.
+    """
+    print("  Extracting Miles equation features ...")
+
+    # Check if miles table exists and has data
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM miles").fetchone()[0]
+        if count == 0:
+            print("    Miles table is empty — skipping Miles features")
+            return pd.DataFrame({"case_id": cases["case_id"].values})
+    except sqlite3.OperationalError:
+        print("    Miles table not found — skipping Miles features")
+        return pd.DataFrame({"case_id": cases["case_id"].values})
+
+    rows = []
+    case_ids = cases["case_id"].values
+    n_cases = len(case_ids)
+
+    for idx, cid in enumerate(case_ids):
+        rec = {"case_id": int(cid)}
+        cur = conn.execute(
+            "SELECT node_id, dof, data_type, mode_number, "
+            "fn, Q, PSD_fn, grms, bandwidth "
+            "FROM miles WHERE case_id=?",
+            (int(cid),),
+        )
+        for m in cur.fetchall():
+            node_id, dof, data_type, mode_num = m[0], m[1], m[2], m[3]
+            fn, Q, PSD_fn, grms, bw = m[4], m[5], m[6], m[7], m[8]
+            prefix = f"n{node_id}_{dof}_{data_type[:3]}_m{mode_num}"
+            rec[f"{prefix}_fn"] = fn or 0.0
+            rec[f"{prefix}_Q"] = Q or 0.0
+            rec[f"{prefix}_PSDfn"] = PSD_fn or 0.0
+            rec[f"{prefix}_grms"] = grms or 0.0
+            rec[f"{prefix}_bw"] = bw or 0.0
+        rows.append(rec)
+
+        if (idx + 1) % 100 == 0 or (idx + 1) == n_cases:
+            print(f"    [{idx+1}/{n_cases}]")
+
+    df = pd.DataFrame(rows).fillna(0.0)
+    print(f"    Miles features: {df.shape[1] - 1} columns")
+    return df
+
+
+# ---------------------------------------------------------------------------
 # Assemble full training matrix
 # ---------------------------------------------------------------------------
 def build_training_matrix(
@@ -548,11 +602,20 @@ def build_training_matrix(
     gc.collect()
 
     # ------------------------------------------------------------------
+    # Stage 4c: Miles equation features
+    # ------------------------------------------------------------------
+    conn = connect(db_path)
+    miles_feats = extract_miles_features(conn, cases)
+    conn.close()
+    gc.collect()
+
+    # ------------------------------------------------------------------
     # Merge and finalize
     # ------------------------------------------------------------------
     merged = labels.merge(peak_feats, on="case_id", how="left")
     merged = merged.merge(spectral_feats, on="case_id", how="left")
     merged = merged.merge(delta_feats, on="case_id", how="left")
+    merged = merged.merge(miles_feats, on="case_id", how="left")
     merged = merged.fillna(0.0)
 
     meta_cols = [
@@ -572,6 +635,23 @@ def build_training_matrix(
     n_dropped = (~keep_mask).sum()
     X = X[:, keep_mask]
     feature_cols = [c for i, c in enumerate(feature_cols) if keep_mask[i]]
+
+    # Log-transform amplitude features (rms, band power) to compress
+    # orders-of-magnitude ranges (1e-42 to 1e+08) into classifier-friendly scale.
+    # Uses sign-preserving log: sign(x) * log10(|x| + 1) so negatives survive.
+    n_log = 0
+    for i, col in enumerate(feature_cols):
+        if any(tag in col for tag in ['_rms', '_band', '_d_rms', '_d_band',
+                                        '_PSDfn', '_grms', '_bw']):
+            X[:, i] = np.sign(X[:, i]) * np.log10(np.abs(X[:, i]) + 1)
+            n_log += 1
+    print(f"  Log-transformed: {n_log} amplitude columns")
+
+    # Standardize all features to zero mean, unit variance
+    from sklearn.preprocessing import StandardScaler
+    scaler = StandardScaler()
+    X = scaler.fit_transform(X)
+    print(f"  StandardScaler applied: mean~0, std~1 across all {X.shape[1]} features")
 
     elapsed = time.time() - t_start
 
@@ -603,10 +683,12 @@ def build_training_matrix(
         feature_names=np.array(feature_cols),
         case_numbers=merged["case_number"].values,
         freq_grid=common_freq,
+        scaler_mean=scaler.mean_,
+        scaler_scale=scaler.scale_,
     )
     print(f"\n  Saved: {output_path}")
     print(f"         Arrays: X, y_bolt, y_severity, y_binary, "
-          f"feature_names, case_numbers, freq_grid")
+          f"feature_names, case_numbers, freq_grid, scaler_mean, scaler_scale")
 
     try:
         merged.to_csv(csv_path, index=False, float_format="%.8g")

@@ -22,7 +22,7 @@ def main():
     print('Size: {:.2f} MB'.format(size_mb))
 
     tables = [('studies', None), ('cases', None), ('psd_data', None),
-              ('peaks', None), ('parameters', None)]
+              ('peaks', None), ('parameters', None), ('miles', None)]
     for table, _ in tables:
         try:
             cursor.execute('SELECT COUNT(*) FROM ' + table)

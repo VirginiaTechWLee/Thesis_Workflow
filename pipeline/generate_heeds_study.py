@@ -390,6 +390,62 @@ def generate_all_bolt_sweep(
     return variable_bolts, designs, design_names
 
 
+def generate_monte_carlo(
+    bolts: List[BoltInfo],
+    skip_bolts: List[int],
+    levels: List[Tuple[int, str]],
+    n_samples: int = 500,
+    seed: int = 42,
+) -> Tuple[List[BoltInfo], List[Dict], List[str]]:
+    """Generate design matrix for Monte Carlo random sampling study (Study D).
+
+    Each design independently and randomly assigns one of the discrete
+    loosened stiffness levels (all levels except baseline) to each bolt.
+    Design 1 is always the baseline (all bolts at tight/baseline).
+
+    Design count: n_samples + 1 (the +1 is the baseline design)
+
+    Args:
+        bolts: all parsed bolts from Bush.blk
+        skip_bolts: bolt numbers to exclude (e.g. driving bolt)
+        levels: list of (exponent, nastran_notation) tuples
+        n_samples: number of random designs to generate
+        seed: random seed for reproducibility
+
+    Returns:
+        variable_bolts: list of BoltInfo for variable bolts
+        designs: list of dicts with design info
+        design_names: list of design name strings
+    """
+    import numpy as np
+
+    variable_bolts = [b for b in bolts if b.bolt_num not in skip_bolts]
+    num_levels = len(levels)
+    baseline_idx = num_levels  # tight = last index (1-based)
+
+    # All level indices (1-based): 1 through num_levels (includes baseline/tight)
+    all_indices = list(range(1, num_levels + 1))
+
+    rng = np.random.default_rng(seed)
+
+    designs = []
+    design_names = []
+
+    # Design 1: baseline (all bolts at tight)
+    design_names.append("monte_carlo_001")
+    designs.append({vb.bolt_num: baseline_idx for vb in variable_bolts})
+
+    # Designs 2 through n_samples+1: random sampling from ALL levels including baseline
+    for i in range(2, n_samples + 2):
+        design_names.append(f"monte_carlo_{i:03d}")
+        row = {}
+        for vb in variable_bolts:
+            row[vb.bolt_num] = int(rng.choice(all_indices))
+        designs.append(row)
+
+    return variable_bolts, designs, design_names
+
+
 # ---------------------------------------------------------------------------
 # HEEDS XML generation
 # ---------------------------------------------------------------------------
@@ -996,6 +1052,14 @@ Examples:
         "--num-modes", type=int, default=10,
         help="Number of modal responses to include (default: 10)"
     )
+    parser.add_argument(
+        "--n-samples", type=int, default=500,
+        help="Number of Monte Carlo random samples (default: 500, only used with --study-type monte_carlo)"
+    )
+    parser.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed for Monte Carlo reproducibility (default: 42)"
+    )
 
     args = parser.parse_args()
 
@@ -1012,7 +1076,7 @@ Examples:
         print("ERROR: --output is required unless --dry-run is specified", file=sys.stderr)
         sys.exit(1)
 
-    if args.study_type not in ("single_bolt_sweep", "two_bolt_sweep", "three_bolt_sweep", "all_bolt_sweep"):
+    if args.study_type not in ("single_bolt_sweep", "two_bolt_sweep", "three_bolt_sweep", "all_bolt_sweep", "monte_carlo"):
         print(f"ERROR: --study-type '{args.study_type}' is not yet implemented.", file=sys.stderr)
         sys.exit(1)
 
@@ -1069,6 +1133,12 @@ Examples:
     elif args.study_type == "all_bolt_sweep":
         variable_bolts, designs, design_names = generate_all_bolt_sweep(
             all_bolts, skip_bolts, levels
+        )
+    elif args.study_type == "monte_carlo":
+        variable_bolts, designs, design_names = generate_monte_carlo(
+            all_bolts, skip_bolts, levels,
+            n_samples=args.n_samples,
+            seed=args.seed,
         )
 
     print(f"Study: {study_name}")

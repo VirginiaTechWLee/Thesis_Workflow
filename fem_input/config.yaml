@@ -63,6 +63,11 @@ bolts:
   stiffness_min: 1.0e4
   stiffness_max: 1.0e14
 
+# --- Monte Carlo Settings ---------------------------------------------------
+monte_carlo:
+  n_samples: 500         # number of random designs (total designs = n_samples + 1 for baseline)
+  seed: 42               # random seed for reproducibility
+
 # --- Output Nodes -----------------------------------------------------------
 # Upper beam nodes (structural) and lower measurement nodes
 output_nodes: [1, 111, 222, 333, 444, 555, 666, 777, 888, 999, 1010, 1111]

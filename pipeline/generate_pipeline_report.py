@@ -568,7 +568,7 @@ def gather_data_db_health(db_path):
     lines.append(f"Database: {db_path}")
     lines.append(f"Size: {size_mb:.2f} MB")
 
-    for table in ["studies", "cases", "psd_data", "peaks", "parameters"]:
+    for table in ["studies", "cases", "psd_data", "peaks", "parameters", "miles"]:
         try:
             cursor.execute(f"SELECT COUNT(*) FROM {table}")
             lines.append(f"{table}: {cursor.fetchone()[0]} rows")
@@ -680,6 +680,49 @@ def gather_data_db_health(db_path):
                                     f"  node {key[0]}, dof={key[1]}, {key[2]}: "
                                     f"{case_name} = {ratio:.3f}x baseline"
                                 )
+    except Exception:
+        pass
+
+    # Miles equation summary — Q factors, GRMS, bandwidth per study
+    try:
+        cursor.execute("SELECT COUNT(*) FROM miles")
+        miles_count = cursor.fetchone()[0]
+        if miles_count > 0:
+            lines.append(f"\n=== MILES EQUATION DATA ({miles_count} rows) ===")
+            lines.append("Miles equation: GRMS = sqrt(pi/2 * fn * Q * PSD(fn))")
+            lines.append("Q = fn / half_power_bandwidth (damping quality factor)")
+
+            # Per-study summary
+            cursor.execute(
+                "SELECT s.study_name, COUNT(m.id), "
+                "AVG(m.fn), AVG(m.Q), AVG(m.grms), AVG(m.bandwidth) "
+                "FROM miles m JOIN cases c ON m.case_id = c.case_id "
+                "JOIN studies s ON c.study_id = s.study_id "
+                "GROUP BY s.study_id ORDER BY s.study_id"
+            )
+            for row in cursor.fetchall():
+                lines.append(
+                    f"  {row[0]}: {row[1]} rows, "
+                    f"avg fn={row[2]:.2f} Hz, avg Q={row[3]:.1f}, "
+                    f"avg GRMS={row[4]:.4e}, avg BW={row[5]:.2f} Hz"
+                )
+
+            # Q factor distribution
+            cursor.execute(
+                "SELECT MIN(Q), MAX(Q), AVG(Q), "
+                "MIN(grms), MAX(grms), AVG(grms) "
+                "FROM miles WHERE Q IS NOT NULL AND grms IS NOT NULL"
+            )
+            qrow = cursor.fetchone()
+            if qrow and qrow[0] is not None:
+                lines.append(f"\n  Q factor range: {qrow[0]:.1f} - {qrow[1]:.1f} (avg {qrow[2]:.1f})")
+                lines.append(f"  GRMS range: {qrow[3]:.4e} - {qrow[4]:.4e} (avg {qrow[5]:.4e})")
+
+            # Cases with NULL Q (couldn't find half-power points)
+            cursor.execute("SELECT COUNT(*) FROM miles WHERE Q IS NULL")
+            null_q = cursor.fetchone()[0]
+            if null_q > 0:
+                lines.append(f"  WARNING: {null_q} miles rows have NULL Q (half-power points not found)")
     except Exception:
         pass
 
@@ -845,6 +888,81 @@ def gather_data_psd_signatures(db_path, study_name=None):
                     f"mean area ratio={mean_ratio:.3f}x, max area ratio={max_ratio:.3f}x"
                 )
 
+    # --- Miles equation data per stiffness level ---
+    lines.append("\n=== MILES EQUATION: Q FACTOR & GRMS BY STIFFNESS LEVEL ===")
+    lines.append("Miles equation: GRMS = sqrt(pi/2 * fn * Q * PSD(fn))")
+    lines.append("Q = fn / half_power_bandwidth (damping quality factor)")
+    lines.append("Higher Q = sharper resonance = less damping. Lower GRMS = lower overall response energy.")
+
+    # Get baseline Miles data
+    try:
+        baseline_miles = {}
+        for bcid in baseline_case_ids:
+            c.execute(
+                "SELECT node_id, dof, data_type, mode_number, fn, Q, PSD_fn, grms, bandwidth "
+                "FROM miles WHERE case_id=? ORDER BY node_id, dof, mode_number",
+                (bcid,),
+            )
+            for m in c.fetchall():
+                mkey = (m[0], m[1], m[2], m[3])  # (node, dof, dtype, mode)
+                baseline_miles[mkey] = {"fn": m[4], "Q": m[5], "PSD_fn": m[6], "grms": m[7], "bw": m[8]}
+
+        if baseline_miles:
+            lines.append("\nBaseline Miles values:")
+            for mkey in sorted(baseline_miles.keys()):
+                bm = baseline_miles[mkey]
+                if bm["Q"] is not None:
+                    lines.append(
+                        f"  Node {mkey[0]}, DOF {mkey[1]} ({mkey[2]}), Mode {mkey[3]}: "
+                        f"fn={bm['fn']:.2f} Hz, Q={bm['Q']:.1f}, "
+                        f"PSD(fn)={bm['PSD_fn']:.4e}, GRMS={bm['grms']:.4e}, BW={bm['bw']:.2f} Hz"
+                    )
+
+        # Per-stiffness-level Miles summary
+        for k4_val in sorted(level_groups.keys()):
+            cids = level_groups[k4_val]
+            if not cids:
+                continue
+
+            placeholders = ",".join("?" * len(cids))
+            c.execute(
+                f"SELECT node_id, dof, data_type, mode_number, "
+                f"AVG(fn), AVG(Q), AVG(PSD_fn), AVG(grms), AVG(bandwidth), "
+                f"MIN(Q), MAX(Q), MIN(grms), MAX(grms) "
+                f"FROM miles WHERE case_id IN ({placeholders}) AND Q IS NOT NULL "
+                f"GROUP BY node_id, dof, data_type, mode_number "
+                f"ORDER BY node_id, dof, mode_number",
+                cids,
+            )
+            level_miles = c.fetchall()
+            if level_miles:
+                lines.append(f"\nK4 = {k4_val:.2e} ({len(cids)} cases):")
+                for lm in level_miles:
+                    node, dof, dtype, mode = lm[0], lm[1], lm[2], lm[3]
+                    avg_fn, avg_Q, avg_psd, avg_grms, avg_bw = lm[4], lm[5], lm[6], lm[7], lm[8]
+                    min_Q, max_Q, min_grms, max_grms = lm[9], lm[10], lm[11], lm[12]
+
+                    # Compare to baseline
+                    bkey = (node, dof, dtype, mode)
+                    q_change = ""
+                    grms_change = ""
+                    if bkey in baseline_miles and baseline_miles[bkey]["Q"] is not None:
+                        bl_Q = baseline_miles[bkey]["Q"]
+                        bl_grms = baseline_miles[bkey]["grms"]
+                        if bl_Q > 0:
+                            q_change = f", Q delta={((avg_Q/bl_Q)-1)*100:+.1f}%"
+                        if bl_grms and bl_grms > 0:
+                            grms_change = f", GRMS ratio={avg_grms/bl_grms:.3f}x"
+
+                    lines.append(
+                        f"    Node {node}, DOF {dof}, Mode {mode}: "
+                        f"avg fn={avg_fn:.2f} Hz, avg Q={avg_Q:.1f} [{min_Q:.1f}-{max_Q:.1f}], "
+                        f"avg GRMS={avg_grms:.4e} [{min_grms:.4e}-{max_grms:.4e}]"
+                        f"{q_change}{grms_change}"
+                    )
+    except Exception as e:
+        lines.append(f"  (Miles data unavailable: {e})")
+
     # --- Top 5 most sensitive channels (by max area ratio across all levels) ---
     lines.append("\n=== TOP CHANNELS BY SENSITIVITY TO BOLT LOOSENESS ===")
     channel_max_ratio = {}
@@ -892,14 +1010,33 @@ def gather_data_psd_signatures(db_path, study_name=None):
         flag = " <-- FIRST DETECTABLE CHANGE" if triggered else ""
         lines.append(f"  K4={k4_val:.2e}: {'detectable change' if triggered else 'within 10% of baseline'}{flag}")
 
-    # --- Sample design table (first 30 cases, top 2 channels) ---
-    lines.append("\n=== SAMPLE CASE TABLE (first 30 cases, top 2 channels) ===")
+    # --- Sample design table (first 30 cases, top 2 channels + Miles data) ---
+    lines.append("\n=== SAMPLE CASE TABLE (first 30 cases, top 2 channels + Miles) ===")
     top2 = [key for key, _ in ranked[:2]]
     if top2:
         hdr = "case_name | stiffness_K4 | " + " | ".join(
-            f"Node{k[0]}_DOF{k[1]}_freq_Hz | Node{k[0]}_DOF{k[1]}_area_ratio" for k in top2
+            f"Node{k[0]}_DOF{k[1]}_freq_Hz | Node{k[0]}_DOF{k[1]}_area_ratio | "
+            f"Node{k[0]}_DOF{k[1]}_Q | Node{k[0]}_DOF{k[1]}_GRMS" for k in top2
         )
         lines.append(hdr)
+
+        # Pre-fetch Miles data for the first 30 case_ids
+        sample_cids = [cr[0] for cr in cases[:30] if not cr[3]]
+        miles_by_case = {}
+        if sample_cids:
+            placeholders = ",".join("?" * len(sample_cids))
+            try:
+                c.execute(
+                    f"SELECT case_id, node_id, dof, data_type, mode_number, Q, grms "
+                    f"FROM miles WHERE case_id IN ({placeholders}) AND mode_number=1",
+                    sample_cids,
+                )
+                for mr in c.fetchall():
+                    mk = (mr[0], mr[1], mr[2], mr[3])  # (case_id, node, dof, dtype)
+                    miles_by_case[mk] = {"Q": mr[5], "grms": mr[6]}
+            except Exception:
+                pass
+
         for case_row in cases[:30]:
             cid, cname, cnum, is_bl = case_row
             if is_bl:
@@ -915,6 +1052,15 @@ def gather_data_psd_signatures(db_path, study_name=None):
                     ratio = area / base_area if area is not None else float("nan")
                     cols.append(f"{f1:.2f}" if f1 else "N/A")
                     cols.append(f"{ratio:.3f}")
+                else:
+                    cols += ["N/A", "N/A"]
+                # Miles Q and GRMS for this case/channel
+                mk = (cid, key[0], key[1], key[2])
+                if mk in miles_by_case:
+                    q_val = miles_by_case[mk]["Q"]
+                    g_val = miles_by_case[mk]["grms"]
+                    cols.append(f"{q_val:.1f}" if q_val else "N/A")
+                    cols.append(f"{g_val:.4e}" if g_val else "N/A")
                 else:
                     cols += ["N/A", "N/A"]
             lines.append(" | ".join(str(x) for x in cols))
