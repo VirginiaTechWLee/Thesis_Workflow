@@ -5,6 +5,12 @@ Fully generalized — derives all class counts, feature counts, label
 mappings, and CV strategy from the data.  Works with any beam model,
 any number of bolts, any number of severity levels.
 
+Pipeline order (critical — do not rearrange):
+  1. StandardScaler   — PCA is sensitive to feature scale
+  2. PCA (95% var)    — reduces curse-of-dimensionality before SMOTE
+  3. SMOTE            — synthetic oversampling in PCA space (train folds only)
+  4. RF + XGB + GB    — ensemble training with try-except per model
+
 Usage:
     python Scripts/train_classifier.py --input D:\\thesis_database\\training_matrix.npz
     python Scripts/train_classifier.py --input data.npz --model-output model.pkl --report report.txt
@@ -14,6 +20,7 @@ import os
 import sys
 import textwrap
 import time
+import traceback
 
 # Force unbuffered output so progress is visible in real-time (logs, MCP, CI)
 os.environ["PYTHONUNBUFFERED"] = "1"
@@ -21,13 +28,27 @@ from pathlib import Path
 
 import joblib
 import numpy as np
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.decomposition import PCA                          # Task 1b
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
     classification_report,
     confusion_matrix,
 )
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+
+# --- Optional dependencies (graceful fallback) ---
+try:
+    from xgboost import XGBClassifier                          # Task 1c
+    _HAS_XGB = True
+except ImportError:
+    _HAS_XGB = False
+
+try:
+    from imblearn.over_sampling import SMOTE                   # Task 1d
+    _HAS_SMOTE = True
+except ImportError:
+    _HAS_SMOTE = False
 
 
 # ---------------------------------------------------------------------------
@@ -78,11 +99,21 @@ def load_data(npz_path: str) -> dict:
 # CV fold selection — adapts to the smallest class
 # ---------------------------------------------------------------------------
 def _choose_k(y: np.ndarray, max_k: int = 5) -> int:
-    """Return the largest k <= max_k such that every class has >= k samples."""
+    """Return the largest k <= max_k for eligible classes (>= MIN_SAMPLES).
+
+    Classes with fewer than MIN_SAMPLES are excluded from controlling
+    CV fold count — they still participate in training.  Prevents a
+    tiny class (e.g. healthy baseline before Study E) from forcing
+    2-fold CV for the entire dataset.  Auto-includes when class grows
+    past threshold (e.g. after Study E import — no code change needed).
+    """
+    MIN_SAMPLES = 6
     _, counts = np.unique(y, return_counts=True)
-    min_count = counts.min()
-    k = min(max_k, min_count)
-    return max(k, 2)  # at least 2-fold
+    eligible = counts[counts >= MIN_SAMPLES]
+    if len(eligible) == 0:
+        return 2
+    k = min(max_k, int(eligible.min()))
+    return max(k, 2)
 
 
 # ---------------------------------------------------------------------------
@@ -93,10 +124,16 @@ def train_and_evaluate(
     y: np.ndarray,
     feature_names: np.ndarray,
     label_prefix: str = "element",
+    model_dir: str = None,
 ) -> dict:
     """
-    Train Random Forest and GradientBoosting with stratified k-fold CV.
-    Returns dict with best model, reports, confusion matrices, importances.
+    Train RF and XGBoost with stratified k-fold CV.
+
+    Pipeline order (critical — do not rearrange):
+      StandardScaler → PCA → SMOTE (train folds only) → classifiers
+
+    Returns dict with best model, reports, confusion matrices, importances,
+    plus saved artifacts: standard_scaler.pkl, pca_transform.pkl, feature_names.pkl
     """
     k = _choose_k(y)
     classes = sorted(np.unique(y))
@@ -106,14 +143,45 @@ def train_and_evaluate(
     print(f"TRAINING — {len(classes)} classes, {k}-fold stratified CV")
     print(f"{'=' * 60}")
 
-    # Scale features — enforce float64 C-contiguous for sklearn Cython routines
-    # (works around NumPy 2.x / sklearn dtype dispatch issues)
+    # ── Task 1a: StandardScaler ──────────────────────────────────────────
+    # PCA is sensitive to feature scale — unscaled features with large
+    # magnitude dominate principal components regardless of variance.
     scaler = StandardScaler()
     X_scaled = np.ascontiguousarray(scaler.fit_transform(X), dtype=np.float64)
     y = np.asarray(y, dtype=np.intp)  # native int for sklearn
+    print(f"  StandardScaler: {X.shape[1]} features, mean~0 std~1")
+
+    # ── Task 1b: PCA — dimensionality reduction ─────────────────────────
+    # Reduces 2,347 features to ~100 components retaining 95% variance.
+    # Fixes: CRASH (smaller matrix avoids sklearn Cython SIGILL),
+    #        RATIO (sample:feature from 0.65:1 to ~15:1),
+    #        SCALE (mandatory at spacecraft's ~98,000 features)
+    pca = PCA(n_components=0.95, random_state=42)
+    X_pca = pca.fit_transform(X_scaled)
+    n_orig = X_scaled.shape[1]
+    n_pca = X_pca.shape[1]
+    var_kept = pca.explained_variance_ratio_.sum()
+    ratio = X_pca.shape[0] / X_pca.shape[1]
+    print(f"  PCA: {n_orig} features -> {n_pca} components "
+          f"({var_kept:.1%} variance retained)")
+    print(f"  Sample:feature ratio: {ratio:.1f}:1 "
+          f"(was {X_scaled.shape[0]/n_orig:.2f}:1)")
+
+    # ── Save artifacts (Task 1a, 1b, 1f) ────────────────────────────────
+    if model_dir:
+        scaler_path = os.path.join(model_dir, "standard_scaler.pkl")
+        pca_path = os.path.join(model_dir, "pca_transform.pkl")
+        fnames_path = os.path.join(model_dir, "feature_names.pkl")
+        joblib.dump(scaler, scaler_path)
+        joblib.dump(pca, pca_path)
+        joblib.dump(list(feature_names), fnames_path)
+        print(f"  Saved: {scaler_path}")
+        print(f"  Saved: {pca_path}")
+        print(f"  Saved: {fnames_path}")
 
     cv = StratifiedKFold(n_splits=k, shuffle=True, random_state=42)
 
+    # ── Task 1c: Model definitions ──────────────────────────────────────
     models = {
         "RandomForest": RandomForestClassifier(
             n_estimators=200,
@@ -121,75 +189,186 @@ def train_and_evaluate(
             random_state=42,
             n_jobs=-1,
         ),
-        "GradientBoosting": GradientBoostingClassifier(
+    }
+
+    if _HAS_XGB:
+        models["XGBoost"] = XGBClassifier(
             n_estimators=200,
             max_depth=5,
             learning_rate=0.1,
             random_state=42,
-        ),
-    }
+            eval_metric="mlogloss",
+            verbosity=0,
+        )
+    else:
+        print("  WARNING: xgboost not installed — skipping XGBClassifier")
+
+
+    # ── SMOTE status message (Task 1d) ──────────────────────────────────
+    if _HAS_SMOTE:
+        print(f"  SMOTE: available (imbalanced-learn)")
+    else:
+        print(f"  SMOTE: NOT available — using class_weight fallback only")
 
     results = {}
     for name, model in models.items():
         print(f"\n--- {name} ---", flush=True)
         t0 = time.time()
 
-        # Manual fold loop with progress reporting
-        y_pred = np.zeros_like(y)
-        fold_accs = []
-        for fold_i, (train_idx, test_idx) in enumerate(cv.split(X_scaled, y), 1):
-            fold_t0 = time.time()
-            print(f"  Fold {fold_i}/{k}: training on {len(train_idx)} samples, "
-                  f"testing on {len(test_idx)} ...", end="", flush=True)
-            clone = type(model)(**model.get_params())
-            clone.fit(X_scaled[train_idx], y[train_idx])
-            y_pred[test_idx] = clone.predict(X_scaled[test_idx])
-            fold_acc = (y_pred[test_idx] == y[test_idx]).mean()
-            fold_accs.append(fold_acc)
-            fold_elapsed = time.time() - fold_t0
-            print(f" acc={fold_acc:.4f} ({fold_elapsed:.1f}s)", flush=True)
-        elapsed = time.time() - t0
-        mean_acc = np.mean(fold_accs)
-        std_acc = np.std(fold_accs)
+        # ── Task 1e: try-except around entire model training ────────────
+        try:
+            # Manual fold loop with progress reporting
+            y_pred = np.full_like(y, fill_value=-1)
+            fold_accs = []
+            for fold_i, (train_idx, test_idx) in enumerate(cv.split(X_pca, y), 1):
+                fold_t0 = time.time()
 
-        print(f"  CV accuracy: {mean_acc:.4f} +/- {std_acc:.4f}  ({elapsed:.1f}s)")
+                X_train_fold = X_pca[train_idx]
+                y_train_fold = y[train_idx]
 
-        # Classification report
-        report = classification_report(
-            y, y_pred, target_names=target_names, zero_division=0
-        )
-        print(f"\n  Classification Report:\n")
-        for line in report.strip().split("\n"):
-            print(f"    {line}")
+                # ── Task 1d: SMOTE on training fold only ────────────────
+                # SMOTE goes AFTER PCA, never before.
+                # In 2,347-d space all points are ~equidistant (curse of
+                # dimensionality) — nearest-neighbor interpolation is
+                # meaningless. In ~100 PCA dimensions, neighbors are
+                # genuine and interpolation produces valid synthetic samples.
+                # SMOTE NEVER touches the test fold — that would be data leakage.
+                smote_applied = False
+                if _HAS_SMOTE:
+                    MIN_SMOTE = 6
+                    vals, counts = np.unique(y_train_fold, return_counts=True)
+                    eligible_mask = counts >= MIN_SMOTE
+                    if eligible_mask.any():
+                        target = int(counts[eligible_mask].max())
+                        strategy = {
+                            int(cls): target
+                            for cls, cnt in zip(vals, counts)
+                            if cnt >= MIN_SMOTE and cnt < target
+                        }
+                        if strategy:
+                            k_neighbors = min(5, int(counts[eligible_mask].min()) - 1)
+                            sm = SMOTE(random_state=42, k_neighbors=k_neighbors,
+                                       sampling_strategy=strategy)
+                            X_train_fold, y_train_fold = sm.fit_resample(
+                                X_train_fold, y_train_fold)
+                            smote_applied = True
 
-        # Confusion matrix
-        cm = confusion_matrix(y, y_pred, labels=classes)
-        print(f"\n  Confusion Matrix (rows=true, cols=pred):")
-        # Header
-        header = "        " + "".join(f"{c:>7}" for c in classes)
-        print(f"    {header}")
-        for i, cls in enumerate(classes):
-            row_str = "".join(f"{cm[i, j]:>7}" for j in range(len(classes)))
-            print(f"    {cls:>6}: {row_str}")
+                print(f"  Fold {fold_i}/{k}: train={len(X_train_fold)}"
+                      f"{'(SMOTE)' if smote_applied else ''}, "
+                      f"test={len(test_idx)} ...", end="", flush=True)
 
-        # Fit on full data for feature importance and final model
-        model.fit(X_scaled, y)
-        importances = model.feature_importances_
-        top_idx = np.argsort(importances)[::-1][:20]
-        print(f"\n  Top 20 features:")
-        for rank, fi in enumerate(top_idx, 1):
-            print(f"    {rank:>2}. {feature_names[fi]:<25s} {importances[fi]:.6f}")
+                clone = type(model)(**model.get_params())
+                # XGBoost requires contiguous 0-indexed labels
+                if name == "XGBoost":
+                    le = LabelEncoder()
+                    y_fit = le.fit_transform(y_train_fold)
+                    clone.fit(X_train_fold, y_fit)
+                    y_pred[test_idx] = le.inverse_transform(
+                        clone.predict(X_pca[test_idx]))
+                else:
+                    clone.fit(X_train_fold, y_train_fold)
+                    y_pred[test_idx] = clone.predict(X_pca[test_idx])
+                fold_acc = (y_pred[test_idx] == y[test_idx]).mean()
+                fold_accs.append(fold_acc)
+                fold_elapsed = time.time() - fold_t0
+                print(f" acc={fold_acc:.4f} ({fold_elapsed:.1f}s)", flush=True)
 
-        results[name] = {
-            "model": model,
-            "scaler": scaler,
-            "mean_acc": mean_acc,
-            "std_acc": std_acc,
-            "report": report,
-            "confusion_matrix": cm,
-            "importances": importances,
-            "y_pred": y_pred,
-        }
+            elapsed = time.time() - t0
+            mean_acc = np.mean(fold_accs)
+            std_acc = np.std(fold_accs)
+
+            print(f"  CV accuracy: {mean_acc:.4f} +/- {std_acc:.4f}  ({elapsed:.1f}s)")
+
+            # Train accuracy (detect overfitting)
+            model_full = type(model)(**model.get_params())
+
+            # SMOTE on full training data for final model
+            X_train_final, y_train_final = X_pca, y
+            if _HAS_SMOTE:
+                MIN_SMOTE = 6
+                vals, counts = np.unique(y, return_counts=True)
+                eligible_mask = counts >= MIN_SMOTE
+                if eligible_mask.any():
+                    target = int(counts[eligible_mask].max())
+                    strategy = {
+                        int(cls): target
+                        for cls, cnt in zip(vals, counts)
+                        if cnt >= MIN_SMOTE and cnt < target
+                    }
+                    if strategy:
+                        k_neighbors = min(5, int(counts[eligible_mask].min()) - 1)
+                        sm = SMOTE(random_state=42, k_neighbors=k_neighbors,
+                                   sampling_strategy=strategy)
+                        X_train_final, y_train_final = sm.fit_resample(X_pca, y)
+                        print(f"  SMOTE (full data): {len(y)} -> {len(y_train_final)} samples")
+
+            # XGBoost requires contiguous 0-indexed labels
+            if name == "XGBoost":
+                le_full = LabelEncoder()
+                y_fit_full = le_full.fit_transform(y_train_final)
+                model_full.fit(X_train_final, y_fit_full)
+                train_acc = (le_full.inverse_transform(
+                    model_full.predict(X_pca)) == y).mean()
+                if model_dir:
+                    le_path = os.path.join(model_dir, "label_encoder.pkl")
+                    joblib.dump(le_full, le_path)
+                    print(f"  Saved: {le_path}")
+            else:
+                model_full.fit(X_train_final, y_train_final)
+                train_acc = (model_full.predict(X_pca) == y).mean()
+            overfit_gap = train_acc - mean_acc
+            print(f"  Train accuracy: {train_acc:.4f}  "
+                  f"(overfit gap: {overfit_gap:+.4f})")
+
+            # Classification report
+            report = classification_report(
+                y, y_pred, target_names=target_names, zero_division=0
+            )
+            print(f"\n  Classification Report:\n")
+            for line in report.strip().split("\n"):
+                print(f"    {line}")
+
+            # Confusion matrix
+            cm = confusion_matrix(y, y_pred, labels=classes)
+            print(f"\n  Confusion Matrix (rows=true, cols=pred):")
+            header = "        " + "".join(f"{c:>7}" for c in classes)
+            print(f"    {header}")
+            for i, cls in enumerate(classes):
+                row_str = "".join(f"{cm[i, j]:>7}" for j in range(len(classes)))
+                print(f"    {cls:>6}: {row_str}")
+
+            # Feature importance (in PCA space)
+            importances = model_full.feature_importances_
+            top_idx = np.argsort(importances)[::-1][:20]
+            print(f"\n  Top 20 PCA components by importance:")
+            for rank, fi in enumerate(top_idx, 1):
+                print(f"    {rank:>2}. PC{fi:<4d} {importances[fi]:.6f}")
+
+            results[name] = {
+                "model": model_full,
+                "scaler": scaler,
+                "pca": pca,
+                "mean_acc": mean_acc,
+                "std_acc": std_acc,
+                "train_acc": train_acc,
+                "overfit_gap": overfit_gap,
+                "report": report,
+                "confusion_matrix": cm,
+                "importances": importances,
+                "y_pred": y_pred,
+            }
+
+        except Exception as exc:
+            # ── Task 1e: no single classifier crash kills the pipeline ──
+            elapsed = time.time() - t0
+            print(f"\n  *** {name} CRASHED after {elapsed:.1f}s ***")
+            print(f"  Error: {exc}")
+            traceback.print_exc()
+            print(f"  Continuing with remaining classifiers...\n")
+
+    if not results:
+        print("\n*** ALL CLASSIFIERS CRASHED — no model saved ***")
+        sys.exit(1)
 
     return results, classes, target_names
 
@@ -214,16 +393,23 @@ def save_outputs(
     print(f"\nBest model: {best_name} "
           f"(accuracy={best['mean_acc']:.4f} +/- {best['std_acc']:.4f})")
 
-    # Save model bundle
+    # Save model bundle (includes PCA reference for predict.py)
     bundle = {
         "model": best["model"],
         "scaler": best["scaler"],
+        "pca": best["pca"],
         "model_name": best_name,
         "classes": classes,
         "target_names": target_names,
         "feature_names": list(feature_names),
         "mean_accuracy": best["mean_acc"],
         "std_accuracy": best["std_acc"],
+        "train_accuracy": best["train_acc"],
+        "overfit_gap": best["overfit_gap"],
+        "n_pca_components": best["pca"].n_components_,
+        "pca_variance_retained": best["pca"].explained_variance_ratio_.sum(),
+        "smote_available": _HAS_SMOTE,
+        "xgboost_available": _HAS_XGB,
     }
     joblib.dump(bundle, model_output)
     print(f"  Saved model: {model_output}")
@@ -233,15 +419,23 @@ def save_outputs(
     lines.append("BOLT LOCALIZATION — CLASSIFICATION REPORT")
     lines.append("=" * 60)
     lines.append(f"Samples: {len(y)}")
-    lines.append(f"Features: {len(feature_names)}")
+    lines.append(f"Raw features: {len(feature_names)}")
+    lines.append(f"PCA components: {best['pca'].n_components_} "
+                 f"({best['pca'].explained_variance_ratio_.sum():.1%} variance)")
+    lines.append(f"Sample:feature ratio: "
+                 f"{len(y)/best['pca'].n_components_:.1f}:1")
     lines.append(f"Classes: {len(classes)} — {classes}")
+    lines.append(f"SMOTE: {'available' if _HAS_SMOTE else 'NOT available'}")
+    lines.append(f"XGBoost: {'available' if _HAS_XGB else 'NOT available'}")
     lines.append("")
 
     for name, res in results.items():
         lines.append(f"{'=' * 60}")
         lines.append(f"MODEL: {name}")
         lines.append(f"{'=' * 60}")
-        lines.append(f"CV accuracy: {res['mean_acc']:.4f} +/- {res['std_acc']:.4f}")
+        lines.append(f"CV accuracy:    {res['mean_acc']:.4f} +/- {res['std_acc']:.4f}")
+        lines.append(f"Train accuracy: {res['train_acc']:.4f}")
+        lines.append(f"Overfit gap:    {res['overfit_gap']:+.4f}")
         lines.append("")
         lines.append("Classification Report:")
         lines.append(res["report"])
@@ -256,10 +450,10 @@ def save_outputs(
         lines.append("")
 
         top_idx = np.argsort(res["importances"])[::-1][:20]
-        lines.append("Top 20 features:")
+        lines.append("Top 20 PCA components by importance:")
         for rank, fi in enumerate(top_idx, 1):
             lines.append(
-                f"  {rank:>2}. {feature_names[fi]:<25s} "
+                f"  {rank:>2}. PC{fi:<4d} "
                 f"{res['importances'][fi]:.6f}"
             )
         lines.append("")
@@ -296,15 +490,19 @@ def main():
     )
     args = parser.parse_args()
 
+    # Model directory = same directory as model output
+    model_dir = str(Path(args.model_output).parent)
+
     # Load
     bundle = load_data(args.input)
     X = bundle["X"]
     y = bundle["y_bolt"]
     feature_names = bundle["feature_names"]
 
-    # Train
+    # Train (with PCA + SMOTE + XGBoost + try-except)
     results, classes, target_names = train_and_evaluate(
-        X, y, feature_names, label_prefix="element"
+        X, y, feature_names, label_prefix="element",
+        model_dir=model_dir,
     )
 
     # Save
