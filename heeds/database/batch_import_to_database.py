@@ -175,18 +175,12 @@ def reset_study_data(conn, study_id):
     return len(case_ids)
 
 def detect_baseline_design(designs):
-    """Detect baseline design: Design1 has all bolts at baseline stiffness.
+    """No HEEDS design is the baseline — it is imported separately.
 
-    In HEEDS sweep studies, Design1 is always the baseline case where all
-    variable bolts are at their healthy (maximum) stiffness level.
-    Returns the design_number of the baseline, or None if not found.
+    The baseline is a dedicated Nastran run imported via Pch_TO_Database.py
+    with --is_baseline, stored as study_baseline.  HEEDS designs are all
+    parametric fault cases; none should be marked is_baseline=True.
     """
-    if not designs:
-        return None
-    # Design1 is always baseline in HEEDS parametric studies
-    for dn, bp, pp, f06 in designs:
-        if dn == 1:
-            return dn
     return None
 
 
