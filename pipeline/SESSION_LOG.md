@@ -1,107 +1,185 @@
 # Session Log — Thesis Pipeline Development
 
-## Date: 2026-03-29
+## Date: 2026-03-30 (Evening Session ~7:00 PM)
 
 ### Mission
-Complete Studies A through D with full pipeline automation. Build a one-button system that any mechanical engineer can run on any FEM.
+Full end-to-end proof test of the thesis pipeline running LOCALLY.
+DB goes from EMPTY to FULL. All 4 studies generated FRESH today.
+No stale data. No skipped steps. Treat it like an engineer testing for the first time.
 
 ---
 
-### Current Database State
-| Study | study_id | Cases | is_baseline | Status |
-|-------|----------|-------|-------------|--------|
-| study_baseline | 0 | 1 | 1 | Healthy FEM reference |
-| study_A_single_bolt_sweep | 1 | 73 | 0 | Complete |
-| study_B_two_bolt_sweep | 2 | 287 | 0 | Complete |
-| study_C_three_bolt_sweep | 3 | 672 | 0 | Complete |
-| study_D_monte_carlo | 4 | TBD (500+) | 0 | Pending |
+## Fix History (this session)
 
-- DB Size: 3,349 MB
-- Total PSD rows: 30,253,284
-- Miles equation rows: 245,983
-- Peaks: 111,564
-- Parameters: 10,330
+### Fix 1: Steps 4-7 converted to in-process execution
+- Python 3.13 subprocess + sqlite3 = segfault (0xC0000005)
+- Steps 4 (Miles), 5 (Features), 6 (Train), 7 (Reports) now call functions directly
+- Step 4: `compute_miles.populate_miles_table(DB_PATH)`
+- Step 5: `extract_features.build_training_matrix(db_path, output_path, noise_floor=1e-5)`
+- Step 6: `train_classifier.main()` with sys.argv override
+- Step 7: `run_local_report.generate_one_report(...)` directly
+- Same pattern as step 3 (import) which was converted in prior session
 
----
+### Fix 2: Removed numpy from batch_import_to_database.py
+- `find_peaks()` and `calculate_area()` rewritten in pure Python
+- numpy + sqlite3 in same process was causing segfaults after ~20 designs
+- No more `import numpy as np` in that file
+- Trapezoidal integration done with a simple for loop
 
-### Step Plan (in order)
+### Fix 3: Added reconnect-every-10-designs workaround
+- `batch_import_to_database.py` closes and reopens sqlite3 connection every 10 designs
+- `RECONNECT_EVERY = 10`
+- Resets C-level state to prevent memory corruption
+- **NOT YET TESTED** — first real test will be when Study A import runs after HEEDS
 
-#### Step 1: ML Feature Extraction + Classifier on A+B+C [COMPLETE]
-- 1,033 samples x 2,343 features (756 peaks + 96 spectral + 72 delta + 1,495 Miles - 76 zero-variance)
-- Log-transform on 998 amplitude columns + StandardScaler normalization
-- **GradientBoosting: 98.65% accuracy (+/- 0.39%)** — best model
-- **RandomForest: 98.45% accuracy (+/- 0.19%)**
-- 10-class bolt localization (element 0=healthy, elements 2-10=loosened bolts)
-- Top features: R2 displacement area (node 222), R2 displacement area (nodes 555, 666, 444)
-- Miles features appear in top 20: PSDfn, grms contributing to classification
-- Weak spots: element 0 (only 2 healthy samples), element 10 (only 8 samples)
-- Saved: D:\thesis_database\bolt_classifier.pkl, classification_report.txt
+### Fix 4: Fixed HEEDS launch — wrong executable
+- `config.yaml` had `heeds_mdo_path: C:\HEEDS\MDO\Ver2410\Python3\python.exe` (WRONG)
+- Changed to `heeds_mdo_path: C:\HEEDS\MDO\Ver2410\Win64\HEEDSMDO.exe`
+- Matches GitHub workflow `vars.HEEDS_MDO_PATH`
+- That's why all 4 studies failed with `NameError: name 'ript' is not defined`
+- The Python interpreter was parsing `-b -script` as Python code
 
-#### Step 2: Run Study D (Monte Carlo)
-- 500+ random designs from discrete stiffness levels
-- Trigger via super_workflow.yml with study_type=study_D
-- Expected runtime: ~2+ hours for 500 Nastran runs
-
-#### Step 3: Re-run ML with A+B+C+D Combined
-- Compare classifier accuracy before/after Monte Carlo
-- Monte Carlo adds unseen random bolt combinations vs structured sweeps
-- Expect improved generalization
-
-#### Step 4: Validate LLM Analysis Reports
-- Most critical step — this is the user-facing output
-- Verify LLM conclusions match actual DB data
-- Check: sensitive nodes, detectability thresholds, Q factor trends, GRMS patterns
-- Report must be trustworthy for a boss-level demo
-
-#### Step 5: Add CBUSH Forces + Strain Energy
-- **Nastran DAT file status:**
-  - SOL 111 (RandomBeamX.dat): HAS `FORCE(PLOT,PHASE,CORNER,PSDF) = 2` — forces ARE requested
-  - SOL 111: Does NOT have ESE (strain energy) — need to add
-  - SOL SEMODES (Fixed_base_beam.dat): HAS both FORCE and ESE
-- **Action needed:**
-  - Add ESE card to SOL 111 deck
-  - Add DB tables for forces and strain energy
-  - Update PCH parser to read force/strain energy data types
-  - Re-run baseline with updated request
-  - Re-run all studies to get force/strain energy for every case
-- **Area under PSD curve**: Already captured in peaks table (`area` column = integral of PSD = RMS squared)
-
-#### Step 6: Full End-to-End Test from Clean DB
-- Wipe database completely
-- Run entire pipeline from scratch (baseline + A + B + C + D)
-- Proves system is self-sufficient and one-button
-- This is the "walk away and come back" demo
+### Fix 5: Created utility scripts (read paths from config.yaml)
+- `pipeline/clean_heeds.py` — deletes study folders, .heeds files, DB, reports
+- `pipeline/clean_database.py` — truncates all DB data, keeps schema intact
 
 ---
 
-### Key Decisions Made Today
-
-1. **Baseline is its own study** — study_baseline at study_id=0, not duplicated per-study
-2. **Default folder_mode changed to skip_if_exists** — prevents accidental data loss
-3. **No artificial timeouts** — HEEDS can run for days on big FEMs
-4. **Looseness threshold is K-ratio only** — forces/strain energy are FEATURES, not labels
-   - Labels = ground truth (which bolt had K reduced)
-   - Features = structural response (PSD, forces, Miles, strain energy)
-   - Prevents circular logic in classifier
-5. **Only sweeping rotational stiffness (K4, K5, K6)** — K1-K3 not varied in HEEDS
-6. **Miles equation added to DB and ML features** — fn, Q, PSD_fn, GRMS, bandwidth per resonance
-7. **Log-transform + StandardScaler normalization** — compresses orders of magnitude for ML
-
-### Pending Future Work (Post Step 6)
-- Multi-label classification for multi-bolt studies (B/C/D bitmask labels)
-- MCP interactive diagnostics
-- LLM analysis of ML results (the "AI analyzing AI" layer)
-- Test on a different FEM to prove generalization
-- HEEDS command-line resume capability (question for Ernesto at Siemens)
+## Current State (before launching pipeline)
+- All old study folders DELETED (A, B, C, D)
+- All old .heeds files DELETED
+- Database DELETED and RECREATED (empty schema)
+- Old reports DELETED
+- Old training_matrix.npz DELETED
+- config.yaml: study_A_single_bolt_sweep, heeds_mdo_path = HEEDSMDO.exe
 
 ---
 
-### Files Modified This Session
-| File | Change |
-|------|--------|
-| `heeds/database/compute_miles.py` | NEW — computes Miles equation from PSD data |
-| `heeds/database/setup_database.py` | Added miles table, is_baseline column |
-| `Scripts/extract_features.py` | Added Miles features, log-transform, StandardScaler |
-| `pipeline/generate_pipeline_report.py` | Added Miles data to DB health + PSD signature reports |
-| `pipeline/db_summary.py` | Added miles table to summary |
-| `.github/workflows/super_workflow.yml` | Added compute_miles step (Stage 6b) |
+## Pipeline Run Log
+
+### Run 1: ~7:13 PM — FAILED (HEEDS wrong executable)
+- FEM Utility completed (SOL 103 + SOL 111 baseline)
+- All 4 HEEDS launches failed: `NameError: name 'ript' is not defined`
+- Root cause: heeds_mdo_path pointed to Python interpreter, not HEEDSMDO.exe
+- Fixed in config.yaml
+
+### Run 2: ~7:20 PM — LAUNCHED (HEEDS exe fixed)
+- Command: `python run_pipeline.py --chain all --non-interactive`
+- Log file: `D:\thesis_database\full_run_20260330_192500.log`
+- FEM Utility: completed (SOL 103 + SOL 111)
+- Study A HEEDS: COMPLETE (73 designs)
+- Study A Import: FAILED (UNIQUE constraint — fixed with frequency column)
+- Study B HEEDS: COMPLETE (288 designs)
+- Study B Import: FAILED (same bug — will be retried)
+- Study C HEEDS: IN PROGRESS — 302/672 at 11:02 PM
+- ETA: ~1 AM for C to finish, then D (501), all HEEDS done ~2 AM
+
+---
+
+## Expected Flow
+1. Step 1: FEM Utility — Nastran SOL 103 + SOL 111 (runs ONCE)
+2. Per study (A→B→C→D):
+   - Step 2: HEEDS — generate .heeds, copy files, launch HEEDSMDO.exe, monitor POST_0
+   - Step 3: Import POST_0 into DB (in-process, reconnect every 10 designs)
+   - Step 4: Compute Miles equation (in-process)
+   - Step 5: Extract ML features (in-process)
+   - Step 6: Train classifier (in-process)
+   - Step 7: LLM reports x8 (in-process)
+   - Step 8: Word report (Node.js — not affected by sqlite3 bug)
+
+## Study Details
+| Study | Designs | Type |
+|-------|---------|------|
+| study_A_single_bolt_sweep | 73 | single bolt, 9 bolts x 9 levels |
+| study_B_two_bolt_sweep | 288 | two-bolt combinations |
+| study_C_three_bolt_sweep | 672 | three-bolt combinations |
+| study_D_monte_carlo | 501 | random sampling, seed=42 |
+
+## POST_0 Folder Paths (will be generated fresh today)
+```
+C:\Users\waynelee\Documents\study_A_single_bolt_sweep_Study_1\POST_0
+C:\Users\waynelee\Documents\study_B_two_bolt_sweep_Study_1\POST_0
+C:\Users\waynelee\Documents\study_C_three_bolt_sweep_Study_1\POST_0
+C:\Users\waynelee\Documents\study_D_monte_carlo_Study_1\POST_0
+```
+
+## Validation Checklist
+- [ ] Study A POST_0 last file has today's date (3/30/2026)
+- [ ] Study B POST_0 last file has today's date
+- [ ] Study C POST_0 last file has today's date
+- [ ] Study D POST_0 last file has today's date
+- [ ] DB import completes without segfault (reconnect workaround works)
+- [ ] Miles equation completes for all studies
+- [ ] Feature extraction produces training_matrix.npz
+- [ ] Classifier trains successfully
+- [ ] All 8 LLM reports generated per study
+- [ ] Word report generated per study
+- [ ] Final DB has all 1,534 designs (73+288+672+501)
+
+## Known Limitations
+- HEEDS results won't have force PSD or f06 data (old templates)
+- Force:0, ForcePeaks:0, ESE:0 is expected
+- Classifier trains on accel/disp features only
+
+---
+
+## Key Paths (from config.yaml — NEVER guess)
+| Variable | Value |
+|----------|-------|
+| HEEDS working dir | `C:\Users\waynelee\Documents` |
+| Database | `D:\thesis_database\thesis_results.db` |
+| HEEDS exe | `C:\HEEDS\MDO\Ver2410\Win64\HEEDSMDO.exe` |
+| Nastran exe | `C:\Program Files\Siemens\Simcenter3D\NXNASTRAN\bin\nastranw.exe` |
+| Python exe | `C:\ProgramData\anaconda3\python.exe` |
+| Pipeline scripts | `C:\Users\waynelee\Desktop\pipeline\` |
+| DB scripts | `C:\Users\waynelee\Desktop\heeds\database\` |
+| ML scripts | `C:\Users\waynelee\Desktop\Scripts\` |
+| Config | `C:\Users\waynelee\Desktop\fem_input\config.yaml` |
+| API key | `C:\Users\waynelee\Desktop\.env` |
+
+---
+
+### Fix 6: Added HEEDS completion fallback
+- If all expected PCH files are present but HEEDS doesn't write "End of HEEDS run" to log
+- Waits 60s after last PCH appears, then proceeds
+- Prevents infinite loop if HEEDS doesn't communicate completion
+
+## Strain Energy Status
+- `ESE = ALL` in RandomBeamX.dat — Nastran writes ESE for EVERY element to f06
+- Parser: `parse_f06_strain_energy()` in batch_import reads element_id, type, energy, percent
+- DB table: `strain_energy(case_id, element_id, element_type, subcase_id, strain_energy, percent_total)`
+- f06 file stays in `Design{N}/Analysis_1/randombeamx.f06` (not cleaned up by bat)
+- ESE is per-element (CBUSH bolts 1-10, CBEAM, etc.), not per-node
+- CBUSH strain energy = key feature for bolt looseness detection
+
+## Force PSD Status
+- `XYPUNCH,FORCE,PSDF` in Recoveries.blk for all 10 CBUSH elements
+- `SET 2 = 1,2,3,4,5,6,7,8,9,10` and `FORCE(PLOT,PHASE,CORNER,PSDF) = 2` in RandomBeamX.dat
+- Force PSD goes to PCH file alongside accel/disp
+- Parser: `parse_pch_file()` handles `$EL FOR` headers
+- DB tables: `force_psd_data`, `force_peaks`
+
+### Fix 7: Strain energy parser — added frequency column, BUSH-only filter
+- f06 has ESE at every frequency step (not just one summary)
+- Added `frequency REAL` column to strain_energy table
+- UNIQUE constraint now: `(case_id, element_id, subcase_id, frequency)`
+- Parser filters to `ELEMENT-TYPE = BUSH` only (bolts 1-10)
+- BEAM elements are structural noise (0.001% of energy) — skipped
+- ~10 bolts x ~200 freq steps = ~2,000 rows per design
+
+### Fix 8: Chain retry logic — no more break on failure
+- Old: if import failed, `break` skipped all remaining steps for that study
+- New: keeps trying remaining steps even if one fails
+- Added retry pass at end: re-runs all failed imports + downstream (Miles, features, train, reports)
+- HEEDS data stays on disk — just needs re-import
+
+## Errors Encountered This Run
+
+### Study A import failed (Run 2, ~7:45 PM)
+- Error: `sqlite3.IntegrityError: UNIQUE constraint failed: strain_energy.case_id, strain_energy.element_id, strain_energy.subcase_id`
+- Root cause: f06 has ESE at every frequency step, parser stored duplicates
+- Fix: added `frequency` column to schema + parser
+- Study A data is on disk — will be re-imported by retry pass
+
+---
+*Log started 2026-03-30 ~7:20 PM*

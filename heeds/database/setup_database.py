@@ -141,6 +141,59 @@ def create_schema(conn):
         )
     ''')
 
+    # Force PSD data table - CBUSH element force PSD curves
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS force_psd_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER NOT NULL,
+            element_id INTEGER NOT NULL,
+            dof TEXT NOT NULL,
+            frequency REAL NOT NULL,
+            psd_value REAL NOT NULL,
+            data_type TEXT DEFAULT 'force',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (case_id) REFERENCES cases(case_id)
+        )
+    ''')
+
+    # Force peaks summary table - top 3 peaks per element/DOF
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS force_peaks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER NOT NULL,
+            element_id INTEGER NOT NULL,
+            dof TEXT NOT NULL,
+            data_type TEXT DEFAULT 'force',
+            area REAL,
+            peak1_freq REAL,
+            peak1_psd REAL,
+            peak2_freq REAL,
+            peak2_psd REAL,
+            peak3_freq REAL,
+            peak3_psd REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (case_id) REFERENCES cases(case_id),
+            UNIQUE(case_id, element_id, dof, data_type)
+        )
+    ''')
+
+    # Strain energy table - element strain energy from f06 (per frequency step)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS strain_energy (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER NOT NULL,
+            element_id INTEGER NOT NULL,
+            element_type TEXT,
+            subcase_id INTEGER DEFAULT 1,
+            frequency REAL,
+            strain_energy REAL,
+            percent_total REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (case_id) REFERENCES cases(case_id),
+            UNIQUE(case_id, element_id, subcase_id, frequency)
+        )
+    ''')
+
     # Create indexes for faster queries
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_psd_case ON psd_data(case_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_psd_node ON psd_data(node_id)')
@@ -149,6 +202,9 @@ def create_schema(conn):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_parameters_case ON parameters(case_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_cases_study ON cases(study_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_miles_case ON miles(case_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_force_psd_case ON force_psd_data(case_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_force_peaks_case ON force_peaks(case_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_strain_energy_case ON strain_energy(case_id)')
     
     conn.commit()
     print("Database schema created successfully.")
@@ -158,7 +214,7 @@ def reset_database(conn):
     """Drop all tables and recreate schema."""
     cursor = conn.cursor()
     
-    tables = ['miles', 'psd_data', 'peaks', 'parameters', 'cases', 'studies']
+    tables = ['strain_energy', 'force_peaks', 'force_psd_data', 'miles', 'psd_data', 'peaks', 'parameters', 'cases', 'studies']
     for table in tables:
         cursor.execute(f'DROP TABLE IF EXISTS {table}')
     

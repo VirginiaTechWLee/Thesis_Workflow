@@ -8,12 +8,12 @@
 
 # --- Study Metadata --------------------------------------------------------
 study:
-  name: study_A_single_bolt_sweep
+  name: study_D_monte_carlo
   description: "Study A: single-bolt sweep, 9 bolts x 9 stiffness levels (73 designs)"
-  type: single_bolt_sweep   # sweep | single_bolt_sweep | doe | monte_carlo
+  type: monte_carlo   # sweep | single_bolt_sweep | doe | monte_carlo
   sweep_bolts: [2, 3, 4, 5, 6, 7, 8, 9, 10]   # all variable bolts
   sweep_levels: [1.0e4, 1.0e5, 1.0e6, 1.0e7, 1.0e8, 1.0e9, 1.0e10, 1.0e11, 1.0e12]
-  expected_designs: 73   # 9 bolts x 9 levels = 81 minus 8 duplicates (HEEDS deduplicates baseline-level designs)
+  expected_designs: 501   # 9 bolts x 9 levels = 81 minus 8 duplicates (HEEDS deduplicates baseline-level designs)
 
 # --- FEM Model Files -------------------------------------------------------
 files:
@@ -110,7 +110,7 @@ paths:
   nastran_exe: "C:\\Program Files\\Siemens\\Simcenter3D\\NXNASTRAN\\bin\\nastranw.exe"
   python_exe: "C:\\ProgramData\\anaconda3\\python.exe"
   heeds_python: "C:\\HEEDS\\MDO\\Ver2410\\Python3\\python.exe"
-  heeds_mdo_path: "C:\\HEEDS\\MDO\\Ver2410\\Python3\\python.exe"
+  heeds_mdo_path: "C:\\HEEDS\\MDO\\Ver2410\\Win64\\HEEDSMDO.exe"
   heeds_solver: "C:\\HEEDS\\MDO\\Ver2410\\Win64\\solver\\heeds.exe"
   heeds_working_dir: "C:\\Users\\waynelee\\Documents"
   db_dir: "D:\\thesis_database"

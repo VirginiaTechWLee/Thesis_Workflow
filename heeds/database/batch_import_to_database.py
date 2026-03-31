@@ -8,7 +8,6 @@ import argparse
 # Force unbuffered output so progress is visible in real-time (logs, MCP, CI)
 os.environ["PYTHONUNBUFFERED"] = "1"
 import re
-import numpy as np
 from pathlib import Path
 
 DEFAULT_DB_PATH = r'D:\thesis_database\thesis_results.db'
@@ -111,17 +110,20 @@ def parse_bush_file(bush_path):
     return parameters
 
 def find_peaks(freq_psd_list, n_peaks=3):
+    """Find top N peaks in a PSD curve (pure Python — no numpy)."""
     if not freq_psd_list or len(freq_psd_list) < 3:
         return [(None, None)] * n_peaks
-    frequencies = np.array([x[0] for x in freq_psd_list])
-    psd_values = np.array([x[1] for x in freq_psd_list])
+    frequencies = [float(x[0]) for x in freq_psd_list]
+    psd_values = [float(x[1]) for x in freq_psd_list]
     peaks = []
     for i in range(1, len(psd_values) - 1):
-        if psd_values[i] > psd_values[i-1] and psd_values[i] > psd_values[i+1]:
+        if psd_values[i] > psd_values[i - 1] and psd_values[i] > psd_values[i + 1]:
             peaks.append((frequencies[i], psd_values[i]))
     if not peaks:
-        max_idx = np.argmax(psd_values)
-        peaks.append((frequencies[max_idx], psd_values[max_idx]))
+        # No local maxima — use global max
+        max_val = max(psd_values)
+        max_idx = psd_values.index(max_val)
+        peaks.append((frequencies[max_idx], max_val))
     peaks.sort(key=lambda x: x[1], reverse=True)
     peaks = peaks[:n_peaks]
     while len(peaks) < n_peaks:
@@ -129,17 +131,21 @@ def find_peaks(freq_psd_list, n_peaks=3):
     return peaks
 
 def calculate_area(freq_psd_list):
+    """Trapezoidal integration of a PSD curve (pure Python — no numpy)."""
     if len(freq_psd_list) < 2:
         return 0.0
-    frequencies = np.array([x[0] for x in freq_psd_list])
-    psd_values = np.array([x[1] for x in freq_psd_list])
-    return float(np.trapz(psd_values, frequencies))
+    frequencies = [float(x[0]) for x in freq_psd_list]
+    psd_values = [float(x[1]) for x in freq_psd_list]
+    area = 0.0
+    for i in range(1, len(frequencies)):
+        area += 0.5 * (psd_values[i] + psd_values[i - 1]) * (frequencies[i] - frequencies[i - 1])
+    return area
 
 def apply_performance_pragmas(conn):
     """Apply SQLite pragmas for fast bulk inserts. Call once after connect."""
-    conn.execute('PRAGMA synchronous = OFF')    # no fsync per commit — 10-100x faster
-    conn.execute('PRAGMA journal_mode = WAL')   # WAL allows reads during writes
-    conn.execute('PRAGMA cache_size = -65536')  # 64 MB page cache
+    conn.execute('PRAGMA synchronous = NORMAL')  # fsync at critical moments — safe + fast
+    conn.execute('PRAGMA journal_mode = DELETE')  # rollback journal — most compatible
+    conn.execute('PRAGMA cache_size = -32768')   # 32 MB page cache (conservative)
     conn.execute('PRAGMA temp_store = MEMORY')
 
 def get_or_create_study(conn, study_name):
@@ -168,77 +174,104 @@ def reset_study_data(conn, study_id):
     conn.commit()
     return len(case_ids)
 
-def insert_case(conn, study_id, design_num, pch_file):
+def detect_baseline_design(designs):
+    """Detect baseline design: Design1 has all bolts at baseline stiffness.
+
+    In HEEDS sweep studies, Design1 is always the baseline case where all
+    variable bolts are at their healthy (maximum) stiffness level.
+    Returns the design_number of the baseline, or None if not found.
+    """
+    if not designs:
+        return None
+    # Design1 is always baseline in HEEDS parametric studies
+    for dn, bp, pp, f06 in designs:
+        if dn == 1:
+            return dn
+    return None
+
+
+def insert_case(conn, study_id, design_num, pch_file, is_baseline=False):
     cursor = conn.cursor()
     cursor.execute('INSERT INTO cases (study_id, case_name, case_number, is_baseline, pch_file) VALUES (?, ?, ?, ?, ?)',
-                   (study_id, f"Design_{design_num}", design_num, False, pch_file))
+                   (study_id, f"Design_{design_num}", design_num, is_baseline, pch_file))
     return cursor.lastrowid  # no commit — caller handles transaction
 
 def insert_parameters_batch(conn, case_id, parameters):
     cursor = conn.cursor()
-    rows = [(case_id, eid, s['K4'], s['K5'], s['K6']) for eid, s in parameters.items()]
-    cursor.executemany('INSERT INTO parameters (case_id, element_id, K4, K5, K6) VALUES (?, ?, ?, ?, ?)', rows)
-    return len(rows)  # no commit — caller handles transaction
+    sql = 'INSERT INTO parameters (case_id, element_id, K4, K5, K6) VALUES (?, ?, ?, ?, ?)'
+    for eid, s in parameters.items():
+        cursor.execute(sql, (case_id, eid, float(s['K4']), float(s['K5']), float(s['K6'])))
+    return len(parameters)  # no commit — caller handles transaction
 
 def insert_psd_data_batch(conn, case_id, psd_data):
     cursor = conn.cursor()
-    rows = []
+    sql = 'INSERT INTO psd_data (case_id, node_id, dof, frequency, psd_value, data_type) VALUES (?, ?, ?, ?, ?, ?)'
+    total = 0
+    # Insert per-curve; use execute in loop to avoid Python 3.13 executemany crash
     for dt in ['acceleration', 'displacement']:
         for (node_id, dof), fpl in psd_data[dt].items():
             for freq, psd in fpl:
-                rows.append((case_id, node_id, dof, freq, psd, dt))
-    cursor.executemany('INSERT INTO psd_data (case_id, node_id, dof, frequency, psd_value, data_type) VALUES (?, ?, ?, ?, ?, ?)', rows)
-    return len(rows)  # no commit — caller handles transaction
+                cursor.execute(sql, (case_id, node_id, dof, float(freq), float(psd), dt))
+                total += 1
+    return total  # no commit — caller handles transaction
 
 def insert_peaks_batch(conn, case_id, psd_data):
     cursor = conn.cursor()
-    rows = []
+    sql = ('INSERT INTO peaks (case_id, node_id, dof, data_type, area, '
+           'peak1_freq, peak1_psd, peak2_freq, peak2_psd, peak3_freq, peak3_psd) '
+           'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    total = 0
     for dt in ['acceleration', 'displacement']:
         for (node_id, dof), fpl in psd_data[dt].items():
             area = calculate_area(fpl)
             peaks = find_peaks(fpl, 3)
-            rows.append((case_id, node_id, dof, dt, area, peaks[0][0], peaks[0][1], peaks[1][0], peaks[1][1], peaks[2][0], peaks[2][1]))
-    cursor.executemany('INSERT INTO peaks (case_id, node_id, dof, data_type, area, peak1_freq, peak1_psd, peak2_freq, peak2_psd, peak3_freq, peak3_psd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', rows)
-    return len(rows)  # no commit — caller handles transaction
+            cursor.execute(sql, (case_id, node_id, dof, dt, area,
+                                 peaks[0][0], peaks[0][1], peaks[1][0], peaks[1][1],
+                                 peaks[2][0], peaks[2][1]))
+            total += 1
+    return total  # no commit — caller handles transaction
 
 def insert_force_psd_batch(conn, case_id, psd_data):
     """Insert CBUSH element force PSD curves into force_psd_data table."""
     cursor = conn.cursor()
-    rows = []
+    sql = ('INSERT INTO force_psd_data (case_id, element_id, dof, frequency, psd_value, data_type) '
+           'VALUES (?, ?, ?, ?, ?, ?)')
+    total = 0
     for (element_id, dof), fpl in psd_data.get('force', {}).items():
         for freq, psd in fpl:
-            rows.append((case_id, element_id, dof, freq, psd, 'force'))
-    if rows:
-        cursor.executemany(
-            'INSERT INTO force_psd_data (case_id, element_id, dof, frequency, psd_value, data_type) '
-            'VALUES (?, ?, ?, ?, ?, ?)', rows)
-    return len(rows)
+            cursor.execute(sql, (case_id, element_id, dof, float(freq), float(psd), 'force'))
+            total += 1
+    return total
 
 
 def insert_force_peaks_batch(conn, case_id, psd_data):
     """Insert CBUSH element force peak data into force_peaks table."""
     cursor = conn.cursor()
-    rows = []
+    sql = ('INSERT INTO force_peaks (case_id, element_id, dof, data_type, area, '
+           'peak1_freq, peak1_psd, peak2_freq, peak2_psd, peak3_freq, peak3_psd) '
+           'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    total = 0
     for (element_id, dof), fpl in psd_data.get('force', {}).items():
         area = calculate_area(fpl)
         peaks = find_peaks(fpl, 3)
-        rows.append((case_id, element_id, dof, 'force', area,
-                      peaks[0][0], peaks[0][1],
-                      peaks[1][0], peaks[1][1],
-                      peaks[2][0], peaks[2][1]))
-    if rows:
-        cursor.executemany(
-            'INSERT INTO force_peaks (case_id, element_id, dof, data_type, area, '
-            'peak1_freq, peak1_psd, peak2_freq, peak2_psd, peak3_freq, peak3_psd) '
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', rows)
-    return len(rows)
+        cursor.execute(sql, (case_id, element_id, dof, 'force', area,
+                             peaks[0][0], peaks[0][1],
+                             peaks[1][0], peaks[1][1],
+                             peaks[2][0], peaks[2][1]))
+        total += 1
+    return total
 
 
 def parse_f06_strain_energy(f06_path):
     """Parse element strain energy from the f06 file.
 
+    SOL 111 writes ESE at every frequency step. Each block has:
+      FREQUENCY = X.XXXE+XX
+      ELEMENT-TYPE = BUSH/BEAM
+      element_id  strain_energy  percent_total  density
+
     Returns list of dicts: [{element_id, element_type, subcase_id,
-                              strain_energy, percent_total}, ...]
+                              frequency, strain_energy, percent_total}, ...]
     """
     results = []
     if not os.path.exists(f06_path):
@@ -246,10 +279,19 @@ def parse_f06_strain_energy(f06_path):
 
     current_elem_type = None
     current_subcase = 1
+    current_freq = None
     in_ese_block = False
 
     with open(f06_path, 'r', errors='ignore') as f:
         for line in f:
+            # Detect frequency header (comes before ESE blocks)
+            freq_match = re.match(r'\s+FREQUENCY\s*=\s*([\d.E+\-]+)', line)
+            if freq_match:
+                try:
+                    current_freq = float(freq_match.group(1))
+                except ValueError:
+                    pass
+
             # Detect element type header
             if 'ELEMENT-TYPE =' in line:
                 parts = line.split('ELEMENT-TYPE =')
@@ -264,7 +306,8 @@ def parse_f06_strain_energy(f06_path):
                     current_subcase = int(match.group(1))
 
             # Data rows: element_id, strain_energy, percent, density
-            if in_ese_block and current_elem_type:
+            # Only store BUSH elements (bolts 1-10) — BEAMs are structural noise
+            if in_ese_block and current_elem_type == 'BUSH':
                 match = re.match(
                     r'\s+(\d+)\s+([\d.E+\-]+)\s+([\d.E+\-]+)',
                     line
@@ -275,6 +318,7 @@ def parse_f06_strain_energy(f06_path):
                             'element_id': int(match.group(1)),
                             'element_type': current_elem_type,
                             'subcase_id': current_subcase,
+                            'frequency': current_freq,
                             'strain_energy': float(match.group(2)),
                             'percent_total': float(match.group(3)),
                         })
@@ -291,16 +335,15 @@ def parse_f06_strain_energy(f06_path):
 def insert_strain_energy_batch(conn, case_id, ese_data):
     """Insert strain energy data into strain_energy table."""
     cursor = conn.cursor()
-    rows = []
+    sql = ('INSERT INTO strain_energy (case_id, element_id, element_type, '
+           'subcase_id, frequency, strain_energy, percent_total) '
+           'VALUES (?, ?, ?, ?, ?, ?, ?)')
+    total = 0
     for e in ese_data:
-        rows.append((case_id, e['element_id'], e['element_type'],
-                      e['subcase_id'], e['strain_energy'], e['percent_total']))
-    if rows:
-        cursor.executemany(
-            'INSERT INTO strain_energy (case_id, element_id, element_type, '
-            'subcase_id, strain_energy, percent_total) '
-            'VALUES (?, ?, ?, ?, ?, ?)', rows)
-    return len(rows)
+        cursor.execute(sql, (case_id, e['element_id'], e['element_type'],
+                             e['subcase_id'], e.get('frequency'), e['strain_energy'], e['percent_total']))
+        total += 1
+    return total
 
 
 def scan_post0_folder(post0_dir):
@@ -367,7 +410,10 @@ def batch_import(post0_dir, study_name, db_path, reset_study=False, dry_run=Fals
         return False
     apply_performance_pragmas(conn)
 
-    COMMIT_EVERY = 50  # commit every N designs — balances memory vs fsync frequency
+    # Python 3.13 sqlite3 C extension crashes after ~20 designs of heavy inserts.
+    # Workaround: close and reopen the connection every RECONNECT_EVERY designs
+    # to reset C-level state and prevent memory corruption.
+    RECONNECT_EVERY = 10
 
     try:
         import time as _time
@@ -376,12 +422,21 @@ def batch_import(post0_dir, study_name, db_path, reset_study=False, dry_run=Fals
         if reset_study:
             d = reset_study_data(conn, study_id)
             print(f"Reset: deleted {d} cases")
+
+        # Detect baseline design (Design1 in HEEDS = all bolts at baseline)
+        baseline_dn = detect_baseline_design(designs)
+        if baseline_dn:
+            print(f"Baseline detected: Design {baseline_dn}")
+        else:
+            print("WARNING: No baseline design detected")
+
         tpsd, tpeak, tparam, tforce, tfpeak, tese = 0, 0, 0, 0, 0, 0
         t0 = _time.time()
-        print(f"\nImporting {len(designs)} designs (commit every {COMMIT_EVERY})...")
+        print(f"\nImporting {len(designs)} designs (reconnect every {RECONNECT_EVERY})...")
         for i, (dn, bp, pp, f06) in enumerate(designs, 1):
             print(f"[{i}/{len(designs)}] Design {dn}...", end=" ", flush=True)
-            cid = insert_case(conn, study_id, dn, pp)
+            is_bl = (dn == baseline_dn)
+            cid = insert_case(conn, study_id, dn, pp, is_baseline=is_bl)
 
             # Bush parameters (K4, K5, K6 stiffness)
             if os.path.exists(bp):
@@ -409,10 +464,13 @@ def batch_import(post0_dir, study_name, db_path, reset_study=False, dry_run=Fals
             eta = (len(designs) - i) / rate if rate > 0 else 0
             print(f"OK  ({elapsed:.0f}s elapsed, {rate:.2f} designs/s, ETA {eta:.0f}s)")
 
-            # Checkpoint commit every N designs
-            if i % COMMIT_EVERY == 0:
+            # Commit + reconnect every N designs to reset sqlite3 C-level state
+            if i % RECONNECT_EVERY == 0:
                 conn.commit()
-                print(f"  [COMMIT at {i}/{len(designs)}]", flush=True)
+                conn.close()
+                conn = sqlite3.connect(db_path)
+                apply_performance_pragmas(conn)
+                print(f"  [COMMIT+RECONNECT at {i}/{len(designs)}]", flush=True)
 
         conn.commit()  # final commit
         total = _time.time() - t0

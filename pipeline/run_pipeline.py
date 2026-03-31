@@ -142,7 +142,31 @@ def run_command(cmd, cwd=None, label="command"):
     except Exception as exc:
         elapsed = time.perf_counter() - t0
         log(f"{label} FAILED -- {exc}", level="ERROR")
-        return 1, elapsed
+
+
+def run_python_via_import(script_path, args_list, cwd=None, label="command"):
+    """
+    Run a Python script via import instead of __main__ to work around
+    Python 3.13 sqlite3 C-extension crashes in subprocess mode.
+
+    Instead of: python script.py --arg1 val1
+    Runs:       python -c "import sys; sys.argv=[...]; exec(open(script).read())"
+
+    This avoids the __main__ module initialization path that triggers
+    access violations in Python 3.13's sqlite3 C extension on Windows.
+    """
+    script_abs = os.path.abspath(script_path)
+    argv_str = str([os.path.basename(script_path)] + args_list)
+
+    code = (
+        f"import sys, os; "
+        f"sys.argv = {argv_str}; "
+        f"os.chdir(r'{os.path.dirname(script_abs)}'); "
+        f"exec(compile(open(r'{script_abs}', encoding='utf-8').read(), "
+        f"r'{script_abs}', 'exec'))"
+    )
+    cmd = [PYTHON, "-c", code]
+    return run_command(cmd, cwd=cwd, label=label)
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +380,7 @@ def step_2_heeds(config):
     import time as _time
     t0 = _time.time()
     last_count = 0
+    pch_done_time = None  # track when PCH count first hit expected
 
     while True:
         _time.sleep(30)
@@ -366,14 +391,25 @@ def step_2_heeds(config):
             with open(study_log, 'r', errors='ignore') as f:
                 if "End of HEEDS run" in f.read():
                     pch_count = len(list(Path(post0_folder).rglob("*.pch"))) if os.path.exists(post0_folder) else 0
-                    log(f"HEEDS complete! {pch_count} PCH files in {elapsed/60:.1f} min")
+                    log(f"HEEDS complete (log signal)! {pch_count} PCH files in {elapsed/60:.1f} min")
                     break
 
-        # Progress display (PCH count — informational only, NOT a gate)
+        # Progress display (PCH count)
         pch_count = len(list(Path(post0_folder).rglob("*.pch"))) if os.path.exists(post0_folder) else 0
         if pch_count != last_count:
             log(f"  [{int(elapsed)}s] {pch_count}/{expected_designs} designs complete")
             last_count = pch_count
+
+        # Fallback: if all expected PCH files exist, wait 60s for HEEDS to finalize, then proceed
+        if pch_count >= expected_designs:
+            if pch_done_time is None:
+                pch_done_time = _time.time()
+                log(f"  All {pch_count} PCH files present — waiting 60s for HEEDS to finalize...")
+            elif _time.time() - pch_done_time > 60:
+                log(f"HEEDS complete (PCH fallback)! {pch_count} PCH files in {elapsed/60:.1f} min")
+                break
+        else:
+            pch_done_time = None  # reset if count drops (shouldn't happen, but be safe)
 
         # Check if HEEDS process died unexpectedly
         if proc.poll() is not None:
@@ -419,19 +455,32 @@ def step_3_import(config):
     pch_count = len(list(Path(post0_dir).rglob("*.pch")))
     log(f"Found POST_0 with {pch_count} PCH files: {post0_dir}")
 
-    cmd = [
-        PYTHON, script,
-        "--post0_dir", post0_dir,
-        "--study", study_name,
-        "--db_path", DB_PATH,
-        "--reset_study",  # clear old data before re-import (same as workflow)
-    ]
-    rc, _ = run_command(cmd, cwd=DB_SCRIPTS_DIR, label="Database Import")
-    return rc
+    # Run in-process to avoid Python 3.13 subprocess sqlite3 crash
+    log(f"Importing {study_name} in-process...")
+    t0 = time.perf_counter()
+    try:
+        import sys as _sys
+        if DB_SCRIPTS_DIR not in _sys.path:
+            _sys.path.insert(0, DB_SCRIPTS_DIR)
+        import batch_import_to_database as bi
+        result = bi.batch_import(post0_dir, study_name, DB_PATH, reset_study=True)
+        elapsed = time.perf_counter() - t0
+        if result:
+            log(f"Database Import completed successfully ({elapsed:.1f}s)")
+            return 0
+        else:
+            log(f"Database Import FAILED ({elapsed:.1f}s)", level="ERROR")
+            return 1
+    except Exception as exc:
+        elapsed = time.perf_counter() - t0
+        log(f"Database Import FAILED -- {exc} ({elapsed:.1f}s)", level="ERROR")
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 def step_4_miles(config):
-    """Step 4: Compute Miles equation parameters."""
+    """Step 4: Compute Miles equation parameters (in-process)."""
     log_separator("STEP 4 / 8 -- Miles Equation (compute_miles)")
 
     script = os.path.join(DB_SCRIPTS_DIR, "compute_miles.py")
@@ -441,13 +490,30 @@ def step_4_miles(config):
     if not check_file_exists(DB_PATH, "thesis_results.db"):
         return 1
 
-    cmd = [PYTHON, script, "--db_path", DB_PATH]
-    rc, _ = run_command(cmd, cwd=DB_SCRIPTS_DIR, label="Miles Equation")
-    return rc
+    log(f"Computing Miles equation in-process...")
+    t0 = time.perf_counter()
+    try:
+        import sys as _sys
+        if DB_SCRIPTS_DIR not in _sys.path:
+            _sys.path.insert(0, DB_SCRIPTS_DIR)
+        # Force reimport in case module was cached from a previous study
+        import importlib
+        import compute_miles as _cm
+        importlib.reload(_cm)
+        _cm.populate_miles_table(DB_PATH, study_name=None, reset=False)
+        elapsed = time.perf_counter() - t0
+        log(f"Miles Equation completed successfully ({elapsed:.1f}s)")
+        return 0
+    except Exception as exc:
+        elapsed = time.perf_counter() - t0
+        log(f"Miles Equation FAILED -- {exc} ({elapsed:.1f}s)", level="ERROR")
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 def step_5_features(config):
-    """Step 5: Extract ML features from the database."""
+    """Step 5: Extract ML features from the database (in-process)."""
     log_separator("STEP 5 / 8 -- Feature Extraction (extract_features)")
 
     script = os.path.join(SCRIPTS_DIR, "extract_features.py")
@@ -457,18 +523,34 @@ def step_5_features(config):
     if not check_file_exists(DB_PATH, "thesis_results.db"):
         return 1
 
-    cmd = [
-        PYTHON, script,
-        "--db", DB_PATH,
-        "--output", NPZ_PATH,
-        "--noise-floor", "1e-5",
-    ]
-    rc, _ = run_command(cmd, cwd=SCRIPTS_DIR, label="Feature Extraction")
+    log(f"Extracting features in-process...")
+    t0 = time.perf_counter()
+    try:
+        import sys as _sys
+        if SCRIPTS_DIR not in _sys.path:
+            _sys.path.insert(0, SCRIPTS_DIR)
+        import importlib
+        import extract_features as _ef
+        importlib.reload(_ef)
+        _ef.build_training_matrix(
+            db_path=DB_PATH,
+            output_path=NPZ_PATH,
+            noise_floor=1e-5,
+        )
+        elapsed = time.perf_counter() - t0
+        log(f"Feature Extraction completed successfully ({elapsed:.1f}s)")
+        rc = 0
+    except Exception as exc:
+        elapsed = time.perf_counter() - t0
+        log(f"Feature Extraction FAILED -- {exc} ({elapsed:.1f}s)", level="ERROR")
+        import traceback
+        traceback.print_exc()
+        rc = 1
     return rc
 
 
 def step_6_train(config):
-    """Step 6: Train the bolt-looseness classifier."""
+    """Step 6: Train the bolt-looseness classifier (in-process)."""
     log_separator("STEP 6 / 8 -- Train Classifier (train_classifier)")
 
     script = os.path.join(SCRIPTS_DIR, "train_classifier.py")
@@ -479,16 +561,48 @@ def step_6_train(config):
         log("Feature matrix not found. Run step 5 first.", level="ERROR")
         return 1
 
-    cmd = [PYTHON, script, "--input", NPZ_PATH]
-    rc, _ = run_command(cmd, cwd=SCRIPTS_DIR, label="Train Classifier")
-    return rc
+    log(f"Training classifier in-process...")
+    t0 = time.perf_counter()
+    try:
+        import sys as _sys
+        if SCRIPTS_DIR not in _sys.path:
+            _sys.path.insert(0, SCRIPTS_DIR)
+        import importlib
+        import train_classifier as _tc
+        importlib.reload(_tc)
+        # Override sys.argv so argparse inside main() picks up the right args
+        saved_argv = _sys.argv
+        _sys.argv = ["train_classifier.py", "--input", NPZ_PATH]
+        try:
+            _tc.main()
+        finally:
+            _sys.argv = saved_argv
+        elapsed = time.perf_counter() - t0
+        log(f"Train Classifier completed successfully ({elapsed:.1f}s)")
+        return 0
+    except Exception as exc:
+        elapsed = time.perf_counter() - t0
+        log(f"Train Classifier FAILED -- {exc} ({elapsed:.1f}s)", level="ERROR")
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 def step_7_reports(config):
-    """Step 7: Generate all 8 chained LLM pipeline reports."""
+    """Step 7: Generate all 8 chained LLM pipeline reports (in-process)."""
     log_separator("STEP 7 / 8 -- LLM Pipeline Reports (generate_pipeline_report)")
 
-    # Check API key
+    # Check API key — load from .env if not already set
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        env_file = os.path.join(os.path.dirname(PIPELINE_DIR), ".env")
+        if os.path.isfile(env_file):
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("ANTHROPIC_API_KEY="):
+                        os.environ["ANTHROPIC_API_KEY"] = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        log("Loaded ANTHROPIC_API_KEY from .env")
+                        break
     if not os.environ.get("ANTHROPIC_API_KEY"):
         log("ANTHROPIC_API_KEY not set. LLM reports require an API key.", level="ERROR")
         return 1
@@ -500,23 +614,54 @@ def step_7_reports(config):
     # Ensure output directory exists
     os.makedirs(REPORTS_DIR, exist_ok=True)
 
+    # Read current study name from config.yaml (chain mode updates this per study)
+    current_study = DEFAULT_STUDY
+    try:
+        import yaml
+        config_yaml = os.path.join(os.path.dirname(PIPELINE_DIR), "fem_input", "config.yaml")
+        with open(config_yaml) as f:
+            cfg = yaml.safe_load(f) or {}
+        current_study = cfg.get('study', {}).get('name', DEFAULT_STUDY)
+    except Exception:
+        pass
+    log(f"  Generating reports for study: {current_study}")
+
+    # Import run_local_report in-process
+    import sys as _sys
+    if PIPELINE_DIR not in _sys.path:
+        _sys.path.insert(0, PIPELINE_DIR)
+    try:
+        import importlib
+        import run_local_report as _rlr
+        importlib.reload(_rlr)
+    except Exception as exc:
+        log(f"Failed to import run_local_report: {exc}", level="ERROR")
+        import traceback
+        traceback.print_exc()
+        return 1
+
     failures = 0
     for i, report_type in enumerate(REPORT_TYPES, 1):
         log(f"  Report {i}/{len(REPORT_TYPES)}: {report_type}")
-
-        cmd = [
-            PYTHON, script,
-            "--db_path", DB_PATH,
-            "--study", DEFAULT_STUDY,
-            "--report_type", report_type,
-            "--output_dir", REPORTS_DIR,
-        ]
-        rc, _ = run_command(cmd, cwd=PIPELINE_DIR, label=f"Report: {report_type}")
-
-        if rc != 0:
-            log(f"Report '{report_type}' failed (rc={rc})", level="ERROR")
+        t0 = time.perf_counter()
+        try:
+            path = _rlr.generate_one_report(
+                report_type=report_type,
+                db_path=DB_PATH,
+                output_dir=REPORTS_DIR,
+                study_name=current_study,
+            )
+            elapsed = time.perf_counter() - t0
+            if path:
+                log(f"  Report '{report_type}' -> {path} ({elapsed:.1f}s)")
+            else:
+                log(f"  Report '{report_type}' skipped (no data) ({elapsed:.1f}s)", level="WARN")
+        except Exception as exc:
+            elapsed = time.perf_counter() - t0
+            log(f"Report '{report_type}' failed: {exc} ({elapsed:.1f}s)", level="ERROR")
+            import traceback
+            traceback.print_exc()
             failures += 1
-            # Continue to next report -- partial reports are still useful
 
     if failures:
         log(f"{failures}/{len(REPORT_TYPES)} reports failed", level="WARN")
@@ -803,9 +948,44 @@ def run_chain(args):
                 if not should_continue(f"{study_name}/{name}", interactive):
                     log("Aborting chain.", level="FATAL")
                     sys.exit(1)
-                break  # skip remaining steps for this study
+                # Don't break — keep trying remaining steps for this study
 
         chain_results[study_name] = study_results
+
+    # --- Retry pass: re-run failed imports and their downstream steps ---
+    failed_studies = [
+        sn for sn, results in chain_results.items()
+        if any(rc not in (0, "skipped") for rc in results.values())
+    ]
+    if failed_studies:
+        log_separator("RETRY PASS — re-running failed studies")
+        log(f"{len(failed_studies)} studies had failures: {', '.join(failed_studies)}")
+
+        for study_name in failed_studies:
+            log_separator(f"RETRY: {study_name}")
+            _update_config_study_name(study_name)
+            config = load_config()
+
+            prev = chain_results[study_name]
+            retry_steps = [
+                (3, "Database Import",    step_3_import,    "skip_import"),
+                (4, "Miles Equation",     step_4_miles,     "skip_import"),
+                (5, "Feature Extraction", step_5_features,  "skip_ml"),
+                (6, "Train Classifier",   step_6_train,     "skip_ml"),
+                (7, "LLM Reports",       step_7_reports,    "skip_reports"),
+                (8, "Final Word Report",  step_8_docx,      "skip_reports"),
+            ]
+
+            for step_num, name, func, skip_attr in retry_steps:
+                if getattr(args, skip_attr, False):
+                    continue
+                # Retry if it failed or was never reached
+                if prev.get(step_num) not in (0, "skipped"):
+                    log(f"  Retrying step {step_num}: {name}")
+                    rc = func(config)
+                    chain_results[study_name][step_num] = rc
+                    if rc != 0:
+                        log(f"  Retry {name} FAILED (rc={rc})", level="ERROR")
 
     # --- Chain Summary ---
     elapsed = time.perf_counter() - t_chain_start
