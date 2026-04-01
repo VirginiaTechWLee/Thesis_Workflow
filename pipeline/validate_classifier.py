@@ -48,27 +48,119 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-TRAINING_MATRIX = Path(r"D:\thesis_database\training_matrix.npz")
-CLASSIFICATION_REPORT = Path(r"D:\thesis_database\classification_report.txt")
-OUTPUT_PATH = Path(r"D:\thesis_database\validation_results.txt")
+def _default_db_dir():
+    """Discover the DB directory from config.yaml, falling back to D:\\thesis_database."""
+    try:
+        import yaml
+        cfg_path = Path(__file__).resolve().parent.parent / "fem_input" / "config.yaml"
+        if cfg_path.exists():
+            with open(cfg_path) as f:
+                cfg = yaml.safe_load(f) or {}
+            db_path = cfg.get('database', {}).get('default_path', '')
+            if db_path:
+                return Path(db_path).parent
+    except Exception:
+        pass
+    return Path(r"D:\thesis_database")
 
-# Human-readable label names — "0" is NOT a CBUSH element, it means "Healthy"
-LABEL_MAP = {
-    0: "Healthy",
-    2: "CBUSH 2 (Nodes 2-222)",
-    3: "CBUSH 3 (Nodes 3-333)",
-    4: "CBUSH 4 (Nodes 4-444)",
-    5: "CBUSH 5 (Nodes 5-555)",
-    6: "CBUSH 6 (Nodes 6-666)",
-    7: "CBUSH 7 (Nodes 7-777)",
-    8: "CBUSH 8 (Nodes 8-888)",
-    9: "CBUSH 9 (Nodes 9-999)",
-    10: "CBUSH 10 (Nodes 10-1010)",
-}
+_DB_DIR = _default_db_dir()
+TRAINING_MATRIX = _DB_DIR / "training_matrix.npz"
+CLASSIFICATION_REPORT = _DB_DIR / "classification_report.txt"
+OUTPUT_PATH = _DB_DIR / "validation_results.txt"
+
+# ---------------------------------------------------------------------------
+# Dynamic LABEL_MAP — discovered from DB, no hardcoded beam geometry
+# ---------------------------------------------------------------------------
+LABEL_MAP = None  # populated lazily by _build_label_map()
+
+
+def _build_label_map(db_path=None):
+    """Build human-readable label map by querying unique element IDs from the DB.
+
+    Falls back to a minimal {0: "Healthy"} map if the DB is unavailable.
+    Discovers bolt-to-node mapping from config.yaml output_nodes when available.
+    """
+    global LABEL_MAP
+    if LABEL_MAP is not None:
+        return LABEL_MAP
+
+    label_map = {0: "Healthy"}
+
+    # Try to discover element IDs from the database
+    if db_path is None:
+        try:
+            import yaml
+            cfg_path = Path(__file__).resolve().parent.parent / "fem_input" / "config.yaml"
+            if cfg_path.exists():
+                with open(cfg_path) as f:
+                    cfg = yaml.safe_load(f) or {}
+                db_path = cfg.get('database', {}).get('default_path')
+        except Exception:
+            pass
+
+    # Try loading output_nodes from config for node mapping
+    output_nodes = None
+    try:
+        import yaml
+        cfg_path = Path(__file__).resolve().parent.parent / "fem_input" / "config.yaml"
+        if cfg_path.exists():
+            with open(cfg_path) as f:
+                cfg = yaml.safe_load(f) or {}
+            output_nodes = cfg.get('output_nodes', [])
+    except Exception:
+        pass
+
+    # Query DB for unique element IDs
+    element_ids = set()
+    if db_path and Path(db_path).exists():
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            cursor = conn.execute("SELECT DISTINCT element_id FROM parameters")
+            element_ids = {row[0] for row in cursor.fetchall()}
+            conn.close()
+        except Exception:
+            pass
+
+    # Build node map: element N -> node pair.
+    # If output_nodes available, find the node that is element_id * 111.
+    # Otherwise just label as "CBUSH {N}".
+    node_set = set(output_nodes) if output_nodes else set()
+    for eid in sorted(element_ids):
+        if eid == 0:
+            continue
+        # Convention: CBUSH element N connects node N to node N*111
+        companion = eid * 111
+        if node_set and companion in node_set:
+            label_map[eid] = f"CBUSH {eid} (Nodes {eid}-{companion})"
+        else:
+            label_map[eid] = f"CBUSH {eid}"
+
+    # Fallback: if DB had no elements, discover from training data labels
+    if len(label_map) == 1:
+        # Will be populated later from y labels in load_training_data
+        pass
+
+    LABEL_MAP = label_map
+    return LABEL_MAP
+
+
+def _ensure_label_map_covers(y):
+    """Ensure LABEL_MAP covers all labels found in training data y."""
+    global LABEL_MAP
+    if LABEL_MAP is None:
+        _build_label_map()
+    for lbl in set(y):
+        lbl = int(lbl)
+        if lbl not in LABEL_MAP:
+            LABEL_MAP[lbl] = f"CBUSH {lbl}"
+
 
 def label_name(lbl):
     """Convert numeric label to human-readable name."""
-    return LABEL_MAP.get(lbl, f"Unknown ({lbl})")
+    if LABEL_MAP is None:
+        _build_label_map()
+    return LABEL_MAP.get(lbl, f"CBUSH {lbl}")
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +204,7 @@ def load_training_data(path: Path):
     _print(f"  Loaded {X.shape[0]} samples, {X.shape[1]} features, "
            f"{len(np.unique(y))} classes.")
     _print(f"  Classes: {sorted(np.unique(y))}")
+    _ensure_label_map_covers(y)
     return X, y, feature_names
 
 

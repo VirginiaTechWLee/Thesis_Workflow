@@ -33,17 +33,43 @@ from pathlib import Path
 PYTHON = r"C:\ProgramData\anaconda3\python.exe"
 NODE = "node"
 
-DB_PATH = r"D:\thesis_database\thesis_results.db"
-NPZ_PATH = r"D:\thesis_database\training_matrix.npz"
-REPORTS_DIR = r"C:\Users\waynelee\Desktop\reports"
-FEM_UTILITY_DIR = r"D:\thesis_database\fem_utility"
-
 SCRIPTS_DIR = r"C:\Users\waynelee\Desktop\Scripts"
 DB_SCRIPTS_DIR = r"C:\Users\waynelee\Desktop\heeds\database"
 PIPELINE_DIR = r"C:\Users\waynelee\Desktop\pipeline"
 
-# Study name used for report context
-DEFAULT_STUDY = "study_A_single_bolt_sweep"
+# --- Config-driven paths (loaded once at startup) ---
+def _load_pipeline_config():
+    """Read config.yaml and derive pipeline paths. Raises on missing keys."""
+    import yaml
+    cfg_path = os.path.join(os.path.dirname(__file__), '..', 'fem_input', 'config.yaml')
+    cfg_path = os.path.abspath(cfg_path)
+    with open(cfg_path) as f:
+        cfg = yaml.safe_load(f) or {}
+
+    db_path = cfg.get('database', {}).get('default_path')
+    if not db_path:
+        raise ValueError("config.yaml missing database.default_path")
+
+    db_dir = os.path.dirname(db_path)
+    npz_path = os.path.join(db_dir, 'training_matrix.npz')
+    reports_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'reports')
+    fem_utility_dir = os.path.join(db_dir, 'fem_utility')
+    study_name = cfg.get('study', {}).get('name')
+    if not study_name:
+        raise ValueError("config.yaml missing study.name")
+
+    return db_path, npz_path, reports_dir, fem_utility_dir, study_name
+
+try:
+    DB_PATH, NPZ_PATH, REPORTS_DIR, FEM_UTILITY_DIR, DEFAULT_STUDY = _load_pipeline_config()
+except Exception as _exc:
+    print(f"[WARN] Could not load config.yaml for pipeline paths: {_exc}", flush=True)
+    # Fail-safe: pipeline cannot run without config, but allow import for testing
+    DB_PATH = None
+    NPZ_PATH = None
+    REPORTS_DIR = None
+    FEM_UTILITY_DIR = None
+    DEFAULT_STUDY = None
 
 # LLM report types in chained order
 REPORT_TYPES = [
@@ -297,9 +323,20 @@ def step_2_heeds(config):
         with open(study_log, 'r', errors='ignore') as f:
             if "End of HEEDS run" in f.read():
                 pch_count = len(list(Path(post0_folder).rglob("*.pch"))) if os.path.exists(post0_folder) else 0
-                log(f"Previous HEEDS run completed ({pch_count} PCH files found)")
-                log(f"Skipping HEEDS — using existing results in {post0_folder}")
-                return 0
+                if pch_count >= expected_designs:
+                    log(f"Previous HEEDS run completed ({pch_count} PCH files found)")
+                    log(f"Skipping HEEDS — using existing results in {post0_folder}")
+                    return 0
+                else:
+                    log(f"Previous run has {pch_count} PCH but config expects {expected_designs} -- re-running")
+                    # Clear POST_0 and log so HEEDS starts fresh (rename can fail on Windows)
+                    if os.path.isdir(post0_folder):
+                        import shutil as _shutil
+                        _shutil.rmtree(post0_folder, ignore_errors=True)
+                        log(f"  Deleted old POST_0")
+                    if os.path.exists(study_log):
+                        os.remove(study_log)
+                        log(f"  Deleted old Study_1.log")
 
     # --- Stage 3a: Generate FBM_TO_DBALL.bat ---
     log("Generating FBM_TO_DBALL.bat...")
@@ -336,11 +373,11 @@ def step_2_heeds(config):
         (heeds_file, f"{study_name}.heeds"),
         (os.path.join(desktop, "Misc", "Bush.blk"), "Bush.blk"),
         (os.path.join(desktop, "FBM_TO_DBALL.bat"), "FBM_TO_DBALL.bat"),
-        (os.path.join(desktop, "templates", cfg['files'].get('structural_model', 'Fixed_base_beam.dat')),
-         cfg['files'].get('structural_model', 'Fixed_base_beam.dat')),
+        (os.path.join(desktop, "templates", cfg['files']['structural_model']),
+         cfg['files']['structural_model']),
         (os.path.join(desktop, "templates", "Recoveries.blk"), "Recoveries.blk"),
-        (os.path.join(desktop, "templates", cfg['files'].get('random_response', 'RandomBeamX.dat')),
-         cfg['files'].get('random_response', 'RandomBeamX.dat')),
+        (os.path.join(desktop, "templates", cfg['files']['random_response']),
+         cfg['files']['random_response']),
         (os.path.join(desktop, "Scripts", cfg['files'].get('postprocessor', 'Pch_TO_CSV2.py')),
          cfg['files'].get('postprocessor', 'Pch_TO_CSV2.py')),
     ]
@@ -382,8 +419,13 @@ def step_2_heeds(config):
     last_count = 0
     pch_done_time = None  # track when PCH count first hit expected
 
+    # HEEDS MDO is a launcher — it spawns heeds.exe (the solver) and exits.
+    # Do NOT rely on proc.poll() for completion; monitor the log + PCH files instead.
+    POLL_SEC = 300  # 5 minutes between checks
+    TIMEOUT_SEC = 86400  # 24-hour safety timeout
+
     while True:
-        _time.sleep(30)
+        _time.sleep(POLL_SEC)
         elapsed = _time.time() - t0
 
         # Primary completion signal: Study_1.log contains "End of HEEDS run"
@@ -397,26 +439,25 @@ def step_2_heeds(config):
         # Progress display (PCH count)
         pch_count = len(list(Path(post0_folder).rglob("*.pch"))) if os.path.exists(post0_folder) else 0
         if pch_count != last_count:
-            log(f"  [{int(elapsed)}s] {pch_count}/{expected_designs} designs complete")
+            log(f"  [{int(elapsed/60):.0f}m] {pch_count}/{expected_designs} designs complete")
             last_count = pch_count
 
         # Fallback: if all expected PCH files exist, wait 60s for HEEDS to finalize, then proceed
         if pch_count >= expected_designs:
             if pch_done_time is None:
                 pch_done_time = _time.time()
-                log(f"  All {pch_count} PCH files present — waiting 60s for HEEDS to finalize...")
+                log(f"  All {pch_count} PCH files present -- waiting 60s for HEEDS to finalize...")
             elif _time.time() - pch_done_time > 60:
                 log(f"HEEDS complete (PCH fallback)! {pch_count} PCH files in {elapsed/60:.1f} min")
                 break
         else:
-            pch_done_time = None  # reset if count drops (shouldn't happen, but be safe)
+            pch_done_time = None
 
-        # Check if HEEDS process died unexpectedly
-        if proc.poll() is not None:
-            log(f"HEEDS process exited with code {proc.returncode}", level="ERROR")
-            if pch_count > 0:
-                log(f"  {pch_count} designs completed before exit — results may be usable")
-            return 1 if pch_count == 0 else 0
+        # Safety timeout
+        if elapsed > TIMEOUT_SEC:
+            pch_count = len(list(Path(post0_folder).rglob("*.pch"))) if os.path.exists(post0_folder) else 0
+            log(f"HEEDS timed out after 24h ({pch_count} PCH files)", level="ERROR")
+            return 1
 
     return 0
 
@@ -455,15 +496,20 @@ def step_3_import(config):
     pch_count = len(list(Path(post0_dir).rglob("*.pch")))
     log(f"Found POST_0 with {pch_count} PCH files: {post0_dir}")
 
+    # Determine force_label from study type (monte_carlo_healthy → force_label=0)
+    study_type = cfg.get('study', {}).get('type', '')
+    force_label = 0 if study_type == 'monte_carlo_healthy' else None
+
     # Run in-process to avoid Python 3.13 subprocess sqlite3 crash
-    log(f"Importing {study_name} in-process...")
+    log(f"Importing {study_name} in-process...{' (force_label=0)' if force_label is not None else ''}")
     t0 = time.perf_counter()
     try:
         import sys as _sys
         if DB_SCRIPTS_DIR not in _sys.path:
             _sys.path.insert(0, DB_SCRIPTS_DIR)
         import batch_import_to_database as bi
-        result = bi.batch_import(post0_dir, study_name, DB_PATH, reset_study=True)
+        result = bi.batch_import(post0_dir, study_name, DB_PATH, reset_study=True,
+                                 force_label=force_label)
         elapsed = time.perf_counter() - t0
         if result:
             log(f"Database Import completed successfully ({elapsed:.1f}s)")
@@ -803,17 +849,18 @@ CHAIN_PRESETS = {
     "all": [
         "study_A_single_bolt_sweep",
         "study_B_two_bolt_sweep",
-        "study_C_three_bolt_sweep",
+        "study_C_staggered_two_bolt",
         "study_D_monte_carlo",
+        "study_E_healthy_variation",
     ],
     "AB": [
         "study_A_single_bolt_sweep",
         "study_B_two_bolt_sweep",
     ],
-    "ABC": [
-        "study_A_single_bolt_sweep",
-        "study_B_two_bolt_sweep",
-        "study_C_three_bolt_sweep",
+    "CDE": [
+        "study_C_staggered_two_bolt",
+        "study_D_monte_carlo",
+        "study_E_healthy_variation",
     ],
 }
 
@@ -821,8 +868,9 @@ CHAIN_PRESETS = {
 STUDY_DESIGNS = {
     "study_A_single_bolt_sweep": 73,
     "study_B_two_bolt_sweep": 288,
-    "study_C_three_bolt_sweep": 672,
-    "study_D_monte_carlo": 501,
+    "study_C_staggered_two_bolt": 288,
+    "study_D_monte_carlo": 1001,
+    "study_E_healthy_variation": 301,
 }
 
 
@@ -858,8 +906,9 @@ def _update_config_study_name(study_name):
     type_map = {
         "study_A_single_bolt_sweep": "single_bolt_sweep",
         "study_B_two_bolt_sweep": "two_bolt_sweep",
-        "study_C_three_bolt_sweep": "three_bolt_sweep",
+        "study_C_staggered_two_bolt": "staggered_two_bolt",
         "study_D_monte_carlo": "monte_carlo",
+        "study_E_healthy_variation": "monte_carlo_healthy",
     }
     if study_name in type_map:
         content = re.sub(
@@ -910,82 +959,92 @@ def run_chain(args):
     else:
         log("Step 1 (FEM Utility): SKIPPED")
 
-    # --- For each study: HEEDS → Import → Miles → Features → Train ---
-    for study_idx, study_name in enumerate(studies, 1):
-        log_separator(f"STUDY {study_idx}/{len(studies)}: {study_name}")
-
-        # Update config.yaml for this study
-        _update_config_study_name(study_name)
-        config = load_config()  # reload
-
-        study_results = {}
-
-        # Steps 2-8 per study: HEEDS → import → ML → reports → Word doc
-        # Each study gets its own reports so you can see cumulative improvement
-        per_study_steps = [
-            (2, "HEEDS",             step_2_heeds,      "skip_heeds"),
-            (3, "Database Import",   step_3_import,     "skip_import"),
-            (4, "Miles Equation",    step_4_miles,      "skip_import"),
-            (5, "Feature Extraction", step_5_features,  "skip_ml"),
-            (6, "Train Classifier",  step_6_train,      "skip_ml"),
-            (7, "LLM Reports",      step_7_reports,     "skip_reports"),
-            (8, "Final Word Report", step_8_docx,       "skip_reports"),
-        ]
-
-        for step_num, name, func, skip_attr in per_study_steps:
-            if step_num < args.from_step:
-                study_results[step_num] = "skipped"
-                continue
-            if getattr(args, skip_attr, False):
-                study_results[step_num] = "skipped"
-                continue
-
-            rc = func(config)
-            study_results[step_num] = rc
-
-            if rc != 0:
-                log(f"{study_name} / {name} FAILED (rc={rc})", level="ERROR")
-                if not should_continue(f"{study_name}/{name}", interactive):
-                    log("Aborting chain.", level="FATAL")
-                    sys.exit(1)
-                # Don't break — keep trying remaining steps for this study
-
-        chain_results[study_name] = study_results
-
-    # --- Retry pass: re-run failed imports and their downstream steps ---
-    failed_studies = [
-        sn for sn, results in chain_results.items()
-        if any(rc not in (0, "skipped") for rc in results.values())
-    ]
-    if failed_studies:
-        log_separator("RETRY PASS — re-running failed studies")
-        log(f"{len(failed_studies)} studies had failures: {', '.join(failed_studies)}")
-
-        for study_name in failed_studies:
-            log_separator(f"RETRY: {study_name}")
+    # ========================================================
+    # Phase 1: Run ALL HEEDS studies first (most time-consuming)
+    # ========================================================
+    if not getattr(args, 'skip_heeds', False) and args.from_step <= 2:
+        log_separator("PHASE 1: HEEDS -- ALL STUDIES")
+        for study_idx, study_name in enumerate(studies, 1):
+            log_separator(f"HEEDS {study_idx}/{len(studies)}: {study_name}")
             _update_config_study_name(study_name)
             config = load_config()
 
-            prev = chain_results[study_name]
-            retry_steps = [
-                (3, "Database Import",    step_3_import,    "skip_import"),
-                (4, "Miles Equation",     step_4_miles,     "skip_import"),
-                (5, "Feature Extraction", step_5_features,  "skip_ml"),
-                (6, "Train Classifier",   step_6_train,     "skip_ml"),
-                (7, "LLM Reports",       step_7_reports,    "skip_reports"),
-                (8, "Final Word Report",  step_8_docx,      "skip_reports"),
-            ]
+            rc = step_2_heeds(config)
+            chain_results.setdefault(study_name, {})[2] = rc
+            if rc != 0:
+                log(f"{study_name} / HEEDS FAILED (rc={rc})", level="ERROR")
+                if not should_continue(f"{study_name}/HEEDS", interactive):
+                    log("Aborting chain.", level="FATAL")
+                    sys.exit(1)
+    else:
+        log("Phase 1 (HEEDS): SKIPPED")
 
-            for step_num, name, func, skip_attr in retry_steps:
-                if getattr(args, skip_attr, False):
-                    continue
-                # Retry if it failed or was never reached
-                if prev.get(step_num) not in (0, "skipped"):
-                    log(f"  Retrying step {step_num}: {name}")
-                    rc = func(config)
-                    chain_results[study_name][step_num] = rc
-                    if rc != 0:
-                        log(f"  Retry {name} FAILED (rc={rc})", level="ERROR")
+    # ========================================================
+    # Phase 2: Import ALL studies into database
+    # ========================================================
+    if not getattr(args, 'skip_import', False) and args.from_step <= 4:
+        log_separator("PHASE 2: DATABASE IMPORT -- ALL STUDIES")
+        for study_idx, study_name in enumerate(studies, 1):
+            log_separator(f"IMPORT {study_idx}/{len(studies)}: {study_name}")
+            _update_config_study_name(study_name)
+            config = load_config()
+
+            # Step 3: Import
+            if args.from_step <= 3:
+                rc = step_3_import(config)
+                chain_results.setdefault(study_name, {})[3] = rc
+                if rc != 0:
+                    log(f"{study_name} / Import FAILED (rc={rc})", level="ERROR")
+                    if not should_continue(f"{study_name}/Import", interactive):
+                        log("Aborting chain.", level="FATAL")
+                        sys.exit(1)
+
+            # Step 4: Miles
+            rc = step_4_miles(config)
+            chain_results.setdefault(study_name, {})[4] = rc
+            if rc != 0:
+                log(f"{study_name} / Miles FAILED (rc={rc})", level="ERROR")
+    else:
+        log("Phase 2 (Import): SKIPPED")
+
+    # ========================================================
+    # Phase 3: ML pipeline (once, on all cumulative data)
+    # ========================================================
+    if not getattr(args, 'skip_ml', False) and args.from_step <= 6:
+        log_separator("PHASE 3: ML PIPELINE (cumulative)")
+        # Use last study name for config context
+        _update_config_study_name(studies[-1])
+        config = load_config()
+
+        rc = step_5_features(config)
+        chain_results.setdefault("_ml", {})[5] = rc
+        if rc != 0:
+            log(f"Feature Extraction FAILED (rc={rc})", level="ERROR")
+            if not should_continue("Feature Extraction", interactive):
+                sys.exit(1)
+
+        rc = step_6_train(config)
+        chain_results.setdefault("_ml", {})[6] = rc
+        if rc != 0:
+            log(f"Train Classifier FAILED (rc={rc})", level="ERROR")
+    else:
+        log("Phase 3 (ML): SKIPPED")
+
+    # ========================================================
+    # Phase 4: Reports (once, after all data trained)
+    # ========================================================
+    if not getattr(args, 'skip_reports', False) and args.from_step <= 8:
+        log_separator("PHASE 4: REPORTS")
+        _update_config_study_name(studies[-1])
+        config = load_config()
+
+        rc = step_7_reports(config)
+        chain_results.setdefault("_reports", {})[7] = rc
+
+        rc = step_8_docx(config)
+        chain_results.setdefault("_reports", {})[8] = rc
+    else:
+        log("Phase 4 (Reports): SKIPPED")
 
     # --- Chain Summary ---
     elapsed = time.perf_counter() - t_chain_start

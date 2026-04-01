@@ -52,7 +52,7 @@ def validate(config_path=None):
     # --- Check FEM files exist ---
     fem_dir = config['files'].get('fem_input_dir', 'fem_input')
     required_files = [
-        config['files'].get('structural_model', 'Fixed_base_beam.dat'),
+        config['files']['structural_model'],  # required — no beam-specific default
         config['files'].get('bush_template', 'Bush.blk'),
     ]
     for fname in required_files:
@@ -103,8 +103,14 @@ def validate_dball_readiness(config_path=None):
 
     errors = []
     fem_dir = config.get('files', {}).get('fem_input_dir', 'fem_input')
-    structural_model = config.get('files', {}).get('structural_model', 'Fixed_base_beam.dat')
-    random_response = config.get('files', {}).get('random_response', 'RandomBeamX.dat')
+    structural_model = config.get('files', {}).get('structural_model')
+    if not structural_model:
+        errors.append("config.yaml missing files.structural_model")
+        return False
+    random_response = config.get('files', {}).get('random_response')
+    if not random_response:
+        errors.append("config.yaml missing files.random_response")
+        return False
     analysis_type = config.get('analysis', {}).get('type', 'full')
 
     dat_path = os.path.join(fem_dir, structural_model)

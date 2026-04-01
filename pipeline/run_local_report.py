@@ -111,11 +111,25 @@ def generate_one_report(report_type, db_path, output_dir, data_file=None,
             elif report_type == "classification" and db_dir:
                 resolved_file = os.path.join(db_dir, "classification_report.txt")
             elif report_type == "fem_health":
-                # Look for .dat files in fem_input/ or templates/
-                for candidate in [
-                    os.path.join(repo_root, "fem_input", "Fixed_base_beam.dat"),
-                    os.path.join(repo_root, "templates", "RandomBeamX.dat"),
-                ]:
+                # Look for .dat files in fem_input/ or templates/ (config-driven)
+                _struct_model = None
+                _rand_resp = None
+                try:
+                    import yaml as _yaml
+                    _cfg_cand = os.path.join(repo_root, "fem_input", "config.yaml")
+                    if os.path.exists(_cfg_cand):
+                        with open(_cfg_cand) as _cf:
+                            _rcfg = _yaml.safe_load(_cf) or {}
+                        _struct_model = _rcfg.get('files', {}).get('structural_model')
+                        _rand_resp = _rcfg.get('files', {}).get('random_response')
+                except Exception:
+                    pass
+                _candidates = []
+                if _struct_model:
+                    _candidates.append(os.path.join(repo_root, "fem_input", _struct_model))
+                if _rand_resp:
+                    _candidates.append(os.path.join(repo_root, "templates", _rand_resp))
+                for candidate in _candidates:
                     if os.path.exists(candidate):
                         resolved_file = candidate
                         break

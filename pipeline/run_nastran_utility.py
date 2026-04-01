@@ -105,8 +105,12 @@ def run_nastran_utility(config_path=None, analysis_type_override=None):
     # --- Paths ---
     nastran_exe = config['paths']['nastran_exe']
     fem_dir = config['files'].get('fem_input_dir', 'fem_input')
-    structural_model = config['files'].get('structural_model', 'Fixed_base_beam.dat')
-    random_response = config['files'].get('random_response', 'RandomBeamX.dat')
+    structural_model = config['files'].get('structural_model')
+    if not structural_model:
+        raise ValueError("config.yaml missing files.structural_model — set this for your FEM")
+    random_response = config['files'].get('random_response')
+    if not random_response:
+        raise ValueError("config.yaml missing files.random_response — set this for your FEM")
     bush_file = config['files'].get('bush_template', 'Bush.blk')
     study_name = config['study'].get('name', 'utility_run')
 

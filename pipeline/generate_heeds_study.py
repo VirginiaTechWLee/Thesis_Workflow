@@ -473,12 +473,30 @@ def generate_heeds_xml(
     levels: List[Tuple[int, str]],
     all_bolts: List[BoltInfo],
     num_modes: int = 10,
+    structural_model: str = None,
+    random_response: str = None,
 ) -> str:
     """Generate the complete HEEDS .heeds XML content.
 
     Follows the exact structure of the working bolt3_sweep.heeds template
     for HEEDS 2410 compatibility.
+
+    structural_model and random_response are config-driven filenames.
+    If not provided, they raise an error.
     """
+    if not structural_model:
+        raise ValueError("structural_model filename is required (from config.yaml files.structural_model)")
+    if not random_response:
+        raise ValueError("random_response filename is required (from config.yaml files.random_response)")
+
+    # Derive Nastran output filenames (Nastran lowercases the stem)
+    import os as _os
+    structural_base = _os.path.splitext(structural_model)[0].lower()
+    structural_f06 = f"{structural_base}.f06"
+    random_base = _os.path.splitext(random_response)[0].lower()
+    random_f06 = f"{random_base}.f06"
+    random_pch = f"{random_base}.pch"
+
     num_designs = len(designs)
     num_var_bolts = len(variable_bolts)
     num_levels = len(levels)
@@ -523,7 +541,7 @@ def generate_heeds_xml(
     xml_parts.append("""
   <!--HEEDS.Attribute.Condition-->
   <Condition name="Condition_1">
-    <Item type="FileContain" anlRef="HEEDS.Analysis.File.MDO.Analysis_1" findRef="HEEDS.Output.File.randombeamx.f06" findText="* * * END OF JOB * * *" op="and"/>
+    <Item type="FileContain" anlRef="HEEDS.Analysis.File.MDO.Analysis_1" findRef="HEEDS.Output.File.{random_f06}" findText="* * * END OF JOB * * *" op="and"/>
   </Condition>""")
 
     # --- Variables ---
@@ -589,10 +607,10 @@ def generate_heeds_xml(
         <VisFile type="data" filename="displacement_results_delta.csv" source="analysisFolder"/>
         <VisFile type="image" filename="all_acceleration_dof_T1.png" source="analysisFolder"/>
         <VisFile type="image" filename="all_displacement_dof_T1.png" source="analysisFolder"/>
-        <VisFile type="data" filename="randombeamx.pch" source="analysisFolder"/>
+        <VisFile type="data" filename="{random_pch}" source="analysisFolder"/>
         <VisFile type="data" filename="Bush.blk" source="analysisFolder"/>
         <Command command="&quot;C:\\\\HEEDS\MDO\Ver2410\Python3\python.exe&quot; Pch_TO_CSV2.py" event="postAnalysis" folder="designFolder" useRval="0" value="0"/>
-        <primaryInput ref="HEEDS.Input.File.Fixed_base_beam.dat"/>
+        <primaryInput ref="HEEDS.Input.File.{structural_model}"/>
         <Reservation active="false" mode="share"/>
         <FinishCondition ref="HEEDS.Attribute.Condition.Condition_1"/>
         <RunCondition folder="designFolder" ref="" resource="LOCAL"/>
@@ -612,7 +630,7 @@ def generate_heeds_xml(
 {bush_tags_str}
           </Data>
         </Input>
-        <Input type="file" path="Fixed_base_beam.dat">
+        <Input type="file" path="{structural_model}">
           <Data>
             <source value="projectFolder"/>
             <target value="analysisFolder"/>
@@ -622,7 +640,7 @@ def generate_heeds_xml(
             <Meta name="hidden" value=""/>
           </Data>
         </Input>
-        <Input type="file" path="RandomBeamX.dat">
+        <Input type="file" path="{random_response}">
           <Data>
             <source value="projectFolder"/>
             <target value="analysisFolder"/>
@@ -644,7 +662,7 @@ def generate_heeds_xml(
 
       <!--Outputs-->
       <Outputs>
-        <Output type="file" path="fixed_base_beam.f06">
+        <Output type="file" path="{structural_f06}">
           <Data>
             <source value="analysisFolder"/>
             <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
@@ -657,7 +675,7 @@ MOVE_DOWN(2)
 GET_COLUMN_FREE(2, -1,',= ')]]></Tag>
           </Data>
         </Output>
-        <Output type="file" path="randombeamx.f06">
+        <Output type="file" path="{random_f06}">
           <Data>
             <source value="analysisFolder"/>
             <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
@@ -666,7 +684,7 @@ GET_COLUMN_FREE(2, -1,',= ')]]></Tag>
             <Meta name="hidden" value=""/>
           </Data>
         </Output>
-        <Output type="file" path="randombeamx.pch">
+        <Output type="file" path="{random_pch}">
           <Data>
             <source value="analysisFolder"/>
             <delimiters delim="," list="string">",",;,"",=,(,),',\t,\s</delimiters>
@@ -904,20 +922,27 @@ def print_dry_run(
 
 # Files required in the HEEDS project folder for Nastran bolt studies.
 # Each entry is (filename, description, required).
-REQUIRED_PROJECT_FILES = [
-    ("Bush.blk",             "PBUSH spring properties",          True),
-    ("Fixed_base_beam.dat",  "Nastran fixed-base modal input",   True),
-    ("RandomBeamX.dat",      "Nastran random response input",    True),
-    ("Recoveries.blk",      "Recovery set bulk data",            True),
-    ("FBM_TO_DBALL.bat",     "Solver launch batch script",       True),
-    ("Pch_TO_CSV2.py",      "Post-processing punch-to-CSV",     True),
-]
+def _required_project_files(structural_model: str, random_response: str):
+    """Return list of (filename, description, required) for project assembly.
+
+    Filenames are config-driven -- no hardcoded beam names.
+    """
+    return [
+        ("Bush.blk",             "PBUSH spring properties",          True),
+        (structural_model,       "Nastran fixed-base modal input",   True),
+        (random_response,        "Nastran random response input",    True),
+        ("Recoveries.blk",      "Recovery set bulk data",            True),
+        ("FBM_TO_DBALL.bat",     "Solver launch batch script",       True),
+        ("Pch_TO_CSV2.py",      "Post-processing punch-to-CSV",     True),
+    ]
 
 
 def assemble_project_folder(
     output_heeds: Path,
     project_dir: str,
     study_name: str,
+    structural_model: str = None,
+    random_response: str = None,
 ) -> Path:
     """Create a ready-to-run HEEDS project folder.
 
@@ -925,8 +950,14 @@ def assemble_project_folder(
     file, copies them into a new folder named after the study, and places the
     .heeds file alongside them.
 
+    structural_model and random_response must come from config.yaml.
     Returns the assembled folder path.
     """
+    if not structural_model:
+        raise ValueError("structural_model is required (from config.yaml)")
+    if not random_response:
+        raise ValueError("random_response is required (from config.yaml)")
+
     project_dir = Path(project_dir)
     if not project_dir.is_dir():
         raise FileNotFoundError(f"--project-dir not found: {project_dir}")
@@ -952,7 +983,7 @@ def assemble_project_folder(
     copied = []
     missing = []
 
-    for filename, desc, required in REQUIRED_PROJECT_FILES:
+    for filename, desc, required in _required_project_files(structural_model, random_response):
         # Skip Bush.blk if it's already been specified via --bush-blk
         # (we'll copy it separately below)
         dst = out_folder / filename
@@ -1060,6 +1091,14 @@ Examples:
         "--seed", type=int, default=42,
         help="Random seed for Monte Carlo reproducibility (default: 42)"
     )
+    parser.add_argument(
+        "--structural-model", default=None,
+        help="Nastran structural model filename (default: from config.yaml files.structural_model)"
+    )
+    parser.add_argument(
+        "--random-response", default=None,
+        help="Nastran random response filename (default: from config.yaml files.random_response)"
+    )
 
     args = parser.parse_args()
 
@@ -1069,6 +1108,29 @@ Examples:
     except ValueError:
         print(f"ERROR: --skip-bolts must be comma-separated integers, got: {args.skip_bolts}",
               file=sys.stderr)
+        sys.exit(1)
+
+    # Resolve config-driven filenames (CLI > config.yaml > error)
+    _structural_model = args.structural_model
+    _random_response = args.random_response
+    if not _structural_model or not _random_response:
+        try:
+            import yaml as _yaml
+            _cfg_path = Path(__file__).resolve().parent.parent / "fem_input" / "config.yaml"
+            if _cfg_path.exists():
+                with open(_cfg_path) as _cf:
+                    _cfg = _yaml.safe_load(_cf) or {}
+                if not _structural_model:
+                    _structural_model = _cfg.get('files', {}).get('structural_model')
+                if not _random_response:
+                    _random_response = _cfg.get('files', {}).get('random_response')
+        except Exception:
+            pass
+    if not _structural_model:
+        print("ERROR: structural_model required via --structural-model or config.yaml", file=sys.stderr)
+        sys.exit(1)
+    if not _random_response:
+        print("ERROR: random_response required via --random-response or config.yaml", file=sys.stderr)
         sys.exit(1)
 
     # Validate args
@@ -1161,6 +1223,8 @@ Examples:
         levels=levels,
         all_bolts=all_bolts,
         num_modes=args.num_modes,
+        structural_model=_structural_model,
+        random_response=_random_response,
     )
 
     # Write output
@@ -1178,6 +1242,8 @@ Examples:
             output_heeds=output_path,
             project_dir=args.project_dir,
             study_name=study_name,
+            structural_model=_structural_model,
+            random_response=_random_response,
         )
         # Also ensure Bush.blk from --bush-blk is in the folder
         bush_dst = out_folder / "Bush.blk"

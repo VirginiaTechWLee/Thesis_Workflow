@@ -399,11 +399,50 @@ def plot_acce_disp_vs_frequency(original_df, node_id, dof='T1', image_format='pn
     return fig
 
 
-def create_combined_data(input_filename='randombeamx.pch', acce_output_filename='acceleration_results.csv',
+def _discover_pch_filename():
+    """Discover the .pch filename from config.yaml or by scanning the current directory.
+
+    Priority: config.yaml files.output_pch > single .pch in cwd > error.
+    """
+    # Try config.yaml
+    try:
+        import yaml
+        for cfg_candidate in [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'fem_input', 'config.yaml'),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fem_input', 'config.yaml'),
+        ]:
+            if os.path.exists(cfg_candidate):
+                with open(cfg_candidate) as f:
+                    cfg = yaml.safe_load(f) or {}
+                pch = cfg.get('files', {}).get('output_pch')
+                if pch:
+                    return pch
+    except Exception:
+        pass
+
+    # Scan current directory for .pch files
+    pch_files = [f for f in os.listdir('.') if f.lower().endswith('.pch')]
+    if len(pch_files) == 1:
+        return pch_files[0]
+    elif len(pch_files) > 1:
+        raise FileNotFoundError(
+            f"Multiple .pch files found: {pch_files}. "
+            f"Specify input_filename or set files.output_pch in config.yaml"
+        )
+    raise FileNotFoundError(
+        "No .pch file found. Specify input_filename or set files.output_pch in config.yaml"
+    )
+
+
+def create_combined_data(input_filename=None, acce_output_filename='acceleration_results.csv',
                          disp_output_filename='displacement_results.csv', plot_node=None, plot_dof='T1',
                          plot_all=False, image_format='png'):
     """Function to create combined accelerations and displacements data"""
     global data_dict, acce_count, disp_count, total_frequencies, total_psd_columns, node_ids
+
+    # Auto-discover .pch filename from config.yaml or current directory
+    if input_filename is None:
+        input_filename = _discover_pch_filename()
 
     # Reset global variables
     data_dict = {}
@@ -767,7 +806,7 @@ def main():
     3. Compare with baseline to create delta files
     """
     # Input and output files
-    input_filename = 'randombeamx.pch'
+    input_filename = _discover_pch_filename()
     acce_output_filename = 'acceleration_results.csv'
     disp_output_filename = 'displacement_results.csv'
     baseline_acce_file = 'acceleration_results_baseline.csv'

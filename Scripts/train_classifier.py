@@ -45,6 +45,12 @@ except ImportError:
     _HAS_XGB = False
 
 try:
+    from sklearn.ensemble import IsolationForest
+    _HAS_ISOFOREST = True
+except ImportError:
+    _HAS_ISOFOREST = False
+
+try:
     from imblearn.over_sampling import SMOTE                   # Task 1d
     _HAS_SMOTE = True
 except ImportError:
@@ -86,12 +92,21 @@ def load_data(npz_path: str) -> dict:
         n = (y_severity == cls).sum()
         print(f"    severity {cls}: {n} samples ({100*n/len(y_severity):.1f}%)")
 
+    # Study IDs for IsolationForest (identifies Study E healthy rows)
+    study_ids = data["study_ids"] if "study_ids" in data.files else None
+    if study_ids is not None:
+        unique_sids = np.unique(study_ids)
+        print(f"\n  study_ids: {len(unique_sids)} studies {unique_sids.tolist()}")
+    else:
+        print(f"\n  study_ids: not in npz (IsolationForest will use y==0 fallback)")
+
     return {
         "X": X,
         "y_bolt": y_bolt,
         "y_severity": y_severity,
         "y_binary": y_binary,
         "feature_names": feature_names,
+        "study_ids": study_ids,
     }
 
 
@@ -119,6 +134,25 @@ def _choose_k(y: np.ndarray, max_k: int = 5) -> int:
 # ---------------------------------------------------------------------------
 # Training + evaluation
 # ---------------------------------------------------------------------------
+def _load_pca_threshold() -> float:
+    """Read PCA variance threshold from config.yaml. Falls back to 0.95."""
+    try:
+        import yaml
+        config_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "fem_input", "config.yaml"
+        )
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        thresh = float(cfg.get("pca", {}).get("variance_threshold", 0.95))
+        if not 0.5 <= thresh <= 1.0:
+            print(f"  WARNING: pca.variance_threshold={thresh} out of range, using 0.95")
+            return 0.95
+        return thresh
+    except Exception:
+        return 0.95
+
+
 def train_and_evaluate(
     X: np.ndarray,
     y: np.ndarray,
@@ -156,7 +190,8 @@ def train_and_evaluate(
     # Fixes: CRASH (smaller matrix avoids sklearn Cython SIGILL),
     #        RATIO (sample:feature from 0.65:1 to ~15:1),
     #        SCALE (mandatory at spacecraft's ~98,000 features)
-    pca = PCA(n_components=0.95, random_state=42)
+    pca_threshold = _load_pca_threshold()
+    pca = PCA(n_components=pca_threshold, random_state=42)
     X_pca = pca.fit_transform(X_scaled)
     n_orig = X_scaled.shape[1]
     n_pca = X_pca.shape[1]
@@ -467,25 +502,396 @@ def save_outputs(
 
 
 # ---------------------------------------------------------------------------
+# Lever 4 — Hierarchical binary classifiers (one per bolt)
+# ---------------------------------------------------------------------------
+def train_binary_classifiers(
+    X_pca: np.ndarray,
+    y: np.ndarray,
+    bolt_ids: np.ndarray = None,
+    model_dir: str = None,
+) -> dict:
+    """
+    Train one binary classifier per bolt: "is bolt N loose? yes/no."
+
+    At inference time, run all models and pick the bolt with the highest
+    P(loose) score. If no bolt exceeds HEALTHY_THRESHOLD, predict healthy.
+
+    Args:
+        X_pca: PCA-transformed feature matrix
+        y: bolt labels (0=healthy, N=bolt N loosest)
+        bolt_ids: array of bolt IDs to train on (default: unique non-zero in y)
+        model_dir: directory to save binary_classifiers.pkl
+
+    Returns:
+        dict with per-bolt models, metrics, and ensemble accuracy
+    """
+    from sklearn.metrics import precision_score, recall_score, f1_score
+
+    print("\n" + "=" * 60)
+    print("LEVER 4 -- BINARY CLASSIFIERS (one per bolt)")
+    print("=" * 60)
+
+    if bolt_ids is None:
+        bolt_ids = sorted(np.unique(y[y != 0]))
+    print(f"  Bolts: {bolt_ids}")
+    print(f"  Samples: {len(y)} ({(y == 0).sum()} healthy, {(y != 0).sum()} faulty)")
+
+    # CV setup — same as main classifier
+    k = _choose_k(y)
+    skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=42)
+    print(f"  CV folds: {k}")
+
+    HEALTHY_THRESHOLD = 0.5
+    bolt_results = {}
+
+    for bolt in bolt_ids:
+        t0 = time.time()
+        y_bin = (y == bolt).astype(int)  # 1 = this bolt, 0 = everything else
+        n_pos = y_bin.sum()
+        n_neg = (y_bin == 0).sum()
+
+        print(f"\n  Bolt {bolt}: {n_pos} positive, {n_neg} negative")
+
+        if n_pos < 2:
+            print(f"    SKIP — only {n_pos} positive samples")
+            continue
+
+        # Choose model — XGBoost if available, else RF
+        if _HAS_XGB:
+            model = XGBClassifier(
+                n_estimators=200,
+                max_depth=6,
+                learning_rate=0.1,
+                random_state=42,
+                use_label_encoder=False,
+                eval_metric="logloss",
+            )
+            model_name = "XGBoost"
+        else:
+            model = RandomForestClassifier(
+                n_estimators=200,
+                max_depth=None,
+                random_state=42,
+                n_jobs=-1,
+            )
+            model_name = "RF"
+
+        try:
+            # Cross-validated predictions
+            y_pred = cross_val_predict(model, X_pca, y_bin, cv=skf)
+
+            precision = precision_score(y_bin, y_pred, zero_division=0)
+            recall = recall_score(y_bin, y_pred, zero_division=0)
+            f1 = f1_score(y_bin, y_pred, zero_division=0)
+            accuracy = (y_pred == y_bin).mean()
+
+            # SMOTE for final model training
+            X_train_final, y_train_final = X_pca, y_bin
+            if _HAS_SMOTE and n_pos >= 6:
+                target_count = max(n_pos, n_neg)
+                strategy = {}
+                if n_pos < target_count:
+                    strategy[1] = target_count
+                if n_neg < target_count:
+                    strategy[0] = target_count
+                if strategy:
+                    k_neighbors = min(5, n_pos - 1)
+                    sm = SMOTE(random_state=42, k_neighbors=k_neighbors,
+                               sampling_strategy=strategy)
+                    X_train_final, y_train_final = sm.fit_resample(X_pca, y_bin)
+
+            # Train final model
+            model_full = type(model)(**model.get_params())
+            model_full.fit(X_train_final, y_train_final)
+
+            elapsed = time.time() - t0
+            print(f"    {model_name}: P={precision:.3f}  R={recall:.3f}  "
+                  f"F1={f1:.3f}  acc={accuracy:.3f}  ({elapsed:.1f}s)")
+
+            bolt_results[int(bolt)] = {
+                "model": model_full,
+                "model_name": model_name,
+                "precision_cv": precision,
+                "recall_cv": recall,
+                "f1_cv": f1,
+                "accuracy_cv": accuracy,
+                "n_positive": int(n_pos),
+                "n_negative": int(n_neg),
+            }
+
+        except Exception as exc:
+            elapsed = time.time() - t0
+            print(f"    *** CRASHED after {elapsed:.1f}s: {exc} ***")
+            traceback.print_exc()
+
+    if not bolt_results:
+        print("\n  *** ALL BINARY CLASSIFIERS FAILED ***")
+        return None
+
+    # --- Ensemble accuracy on full dataset ---
+    # Simulate inference: each bolt model scores every sample,
+    # pick the bolt with highest P(loose), apply threshold
+    print(f"\n  {'=' * 50}")
+    print(f"  BINARY ENSEMBLE EVALUATION")
+    print(f"  {'=' * 50}")
+
+    ensemble_preds = np.zeros(len(y), dtype=int)
+    ensemble_conf = np.zeros(len(y), dtype=float)
+
+    for i in range(len(y)):
+        scores = {}
+        for bolt, res in bolt_results.items():
+            proba = res["model"].predict_proba(X_pca[i:i+1])[0]
+            # proba = [P(not loose), P(loose)]
+            scores[bolt] = proba[1] if len(proba) > 1 else proba[0]
+
+        best_bolt = max(scores, key=scores.get)
+        best_confidence = scores[best_bolt]
+
+        if best_confidence < HEALTHY_THRESHOLD:
+            ensemble_preds[i] = 0  # healthy
+            ensemble_conf[i] = 1 - best_confidence
+        else:
+            ensemble_preds[i] = best_bolt
+            ensemble_conf[i] = best_confidence
+
+    ensemble_acc = (ensemble_preds == y).mean()
+    # Per-class breakdown
+    for cls in sorted(np.unique(y)):
+        mask = y == cls
+        cls_acc = (ensemble_preds[mask] == cls).mean()
+        label = "healthy" if cls == 0 else f"bolt {cls}"
+        print(f"    {label:>10s}: {cls_acc:.1%} "
+              f"({(ensemble_preds[mask] == cls).sum()}/{mask.sum()})")
+
+    print(f"\n    Ensemble accuracy: {ensemble_acc:.4f}")
+    print(f"    Healthy threshold: {HEALTHY_THRESHOLD}")
+
+    # --- Summary table ---
+    print(f"\n  Per-bolt summary:")
+    print(f"    {'Bolt':>6s} {'Prec':>6s} {'Recall':>6s} {'F1':>6s} "
+          f"{'Acc':>6s} {'n_pos':>6s}")
+    print(f"    {'-'*38}")
+    for bolt in sorted(bolt_results.keys()):
+        r = bolt_results[bolt]
+        print(f"    {bolt:>6d} {r['precision_cv']:>6.3f} {r['recall_cv']:>6.3f} "
+              f"{r['f1_cv']:>6.3f} {r['accuracy_cv']:>6.3f} {r['n_positive']:>6d}")
+
+    # --- Save ---
+    if model_dir:
+        pkl_path = os.path.join(model_dir, "binary_classifiers.pkl")
+        bundle = {
+            "models": {b: r["model"] for b, r in bolt_results.items()},
+            "bolt_results": {
+                b: {k: v for k, v in r.items() if k != "model"}
+                for b, r in bolt_results.items()
+            },
+            "ensemble_accuracy": ensemble_acc,
+            "healthy_threshold": HEALTHY_THRESHOLD,
+            "bolt_ids": sorted(bolt_results.keys()),
+        }
+        joblib.dump(bundle, pkl_path)
+        print(f"\n  Saved: {pkl_path}")
+
+    return {
+        "bolt_results": bolt_results,
+        "ensemble_accuracy": ensemble_acc,
+        "ensemble_preds": ensemble_preds,
+        "healthy_threshold": HEALTHY_THRESHOLD,
+    }
+
+
+# ---------------------------------------------------------------------------
+# IsolationForest — anomaly detection trained on healthy cases
+# ---------------------------------------------------------------------------
+def train_isolation_forest(
+    X_pca: np.ndarray,
+    y: np.ndarray,
+    study_ids: np.ndarray = None,
+    model_dir: str = None,
+) -> dict:
+    """
+    Train IsolationForest on healthy cases only.
+
+    Healthy cases come from Study E (healthy variation) identified by
+    study_ids, or fall back to label==0 cases.
+
+    Study E is REQUIRED for meaningful anomaly detection. Without it,
+    falls back to label==0 cases only (baseline + ties -- very few
+    samples, degraded performance).
+
+    This is permanent fallback logic -- not temporary. Same pattern as
+    SMOTE threshold fallback: works with whatever healthy data exists,
+    improves automatically as more is added. Generalizes to any FEM --
+    spacecraft may have few healthy cases too.
+
+    Args:
+        X_pca: PCA-transformed feature matrix (all cases)
+        y: bolt labels (0=healthy, N=bolt N is loosest)
+        study_ids: per-row study IDs from npz (None = fallback to y==0)
+        model_dir: directory to save isolation_forest.pkl
+
+    Returns:
+        dict with model, metrics, and source description, or None
+    """
+    if not _HAS_ISOFOREST:
+        print("\n  IsolationForest: sklearn not available -- skipped")
+        return None
+
+    print("\n" + "=" * 60)
+    print("ISOLATION FOREST -- ANOMALY DETECTION")
+    print("=" * 60)
+
+    MIN_HEALTHY_SAMPLES = 10
+
+    # --- Identify healthy training rows ---
+    # Priority: Study E rows (force_label=0, true healthy variation)
+    # Fallback: any row with y==0 (baseline, ties -- limited diversity)
+    study_e_mask = None
+    if study_ids is not None:
+        # Study E has force_label=0, so all its rows have y==0.
+        # But we specifically want Study E rows because they have
+        # controlled healthy stiffness variation (1e11-1e12 range).
+        # Discover Study E study_id: it's the study whose rows are ALL y==0
+        # AND has the most rows (Study E = 300 designs vs baseline = 1).
+        candidate_sids = []
+        for sid in np.unique(study_ids):
+            mask = study_ids == sid
+            if mask.sum() >= MIN_HEALTHY_SAMPLES and np.all(y[mask] == 0):
+                candidate_sids.append((sid, mask.sum()))
+        if candidate_sids:
+            # Pick the largest all-healthy study (= Study E)
+            best_sid, best_n = max(candidate_sids, key=lambda x: x[1])
+            study_e_mask = study_ids == best_sid
+            print(f"  Study E detected: study_id={best_sid} ({best_n} healthy rows)")
+
+    if study_e_mask is not None and study_e_mask.sum() >= MIN_HEALTHY_SAMPLES:
+        healthy_idx = np.where(study_e_mask)[0]
+        source = f"Study E ({study_e_mask.sum()} healthy designs)"
+    elif (y == 0).sum() >= MIN_HEALTHY_SAMPLES:
+        healthy_idx = np.where(y == 0)[0]
+        source = f"label==0 fallback ({(y == 0).sum()} cases)"
+    else:
+        n_healthy = (y == 0).sum()
+        print(f"  WARNING: IsolationForest skipped -- "
+              f"only {n_healthy} healthy cases. "
+              f"Need >= {MIN_HEALTHY_SAMPLES}. "
+              f"Run Study E (healthy variation) to fix this.")
+        return None
+
+    X_healthy = X_pca[healthy_idx]
+    print(f"  Training on: {source}")
+    print(f"  Healthy samples: {len(healthy_idx)}")
+    print(f"  PCA dimensions:  {X_pca.shape[1]}")
+
+    # --- Train ---
+    t0 = time.time()
+    iso = IsolationForest(
+        contamination="auto",
+        random_state=42,
+        n_estimators=100,
+    )
+    iso.fit(X_healthy)
+    elapsed = time.time() - t0
+    print(f"  Fitted in {elapsed:.1f}s")
+
+    # --- Validate on full dataset ---
+    scores = iso.decision_function(X_pca)
+    preds = iso.predict(X_pca)  # +1 = inlier (healthy), -1 = outlier (fault)
+
+    n_fault = (y != 0).sum()
+    n_healthy = (y == 0).sum()
+
+    # True positive: fault case flagged as outlier (-1)
+    true_pos = (preds[y != 0] == -1).sum() if n_fault > 0 else 0
+    # True negative: healthy case flagged as inlier (+1)
+    true_neg = (preds[y == 0] == 1).sum() if n_healthy > 0 else 0
+    # False positive: healthy case flagged as outlier (-1)
+    false_pos = (preds[y == 0] == -1).sum() if n_healthy > 0 else 0
+    # False negative: fault case flagged as inlier (+1)
+    false_neg = (preds[y != 0] == 1).sum() if n_fault > 0 else 0
+
+    detection_rate = (true_pos + true_neg) / len(y)
+    fault_detection = true_pos / n_fault if n_fault > 0 else 0.0
+    false_alarm_rate = false_pos / n_healthy if n_healthy > 0 else 0.0
+
+    print(f"\n  Results (full dataset, {len(y)} cases):")
+    print(f"    Detection rate:     {detection_rate:.1%}")
+    print(f"    Fault detection:    {fault_detection:.1%} "
+          f"({true_pos}/{n_fault} faults caught)")
+    print(f"    False alarm rate:   {false_alarm_rate:.1%} "
+          f"({false_pos}/{n_healthy} healthy flagged)")
+    print(f"    Missed faults:      {false_neg}/{n_fault}")
+
+    # Score distribution summary
+    print(f"\n  Score distribution:")
+    print(f"    Healthy (y==0): mean={scores[y == 0].mean():.4f}, "
+          f"std={scores[y == 0].std():.4f}")
+    if n_fault > 0:
+        print(f"    Faulty  (y!=0): mean={scores[y != 0].mean():.4f}, "
+              f"std={scores[y != 0].std():.4f}")
+
+    # --- Save ---
+    if model_dir:
+        iso_path = os.path.join(model_dir, "isolation_forest.pkl")
+        iso_bundle = {
+            "model": iso,
+            "source": source,
+            "n_healthy_train": len(healthy_idx),
+            "detection_rate": detection_rate,
+            "fault_detection": fault_detection,
+            "false_alarm_rate": false_alarm_rate,
+        }
+        joblib.dump(iso_bundle, iso_path)
+        print(f"\n  Saved: {iso_path}")
+
+    return {
+        "model": iso,
+        "source": source,
+        "detection_rate": detection_rate,
+        "fault_detection": fault_detection,
+        "false_alarm_rate": false_alarm_rate,
+        "scores": scores,
+    }
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 def main():
+    # Derive default paths from config.yaml when available
+    _db_dir = r"D:\thesis_database"  # ultimate fallback
+    try:
+        import yaml
+        _cfg_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "fem_input", "config.yaml"
+        )
+        if os.path.exists(_cfg_path):
+            with open(_cfg_path) as _cf:
+                _cfg = yaml.safe_load(_cf) or {}
+            _db_path = _cfg.get('database', {}).get('default_path', '')
+            if _db_path:
+                _db_dir = str(Path(_db_path).parent)
+    except Exception:
+        pass
+
     parser = argparse.ArgumentParser(
         description="Train bolt-localization classifiers (generalized)"
     )
     parser.add_argument(
         "--input",
-        default=r"D:\thesis_database\training_matrix.npz",
+        default=os.path.join(_db_dir, "training_matrix.npz"),
         help="Path to training_matrix.npz",
     )
     parser.add_argument(
         "--model-output",
-        default=r"D:\thesis_database\bolt_classifier.pkl",
+        default=os.path.join(_db_dir, "bolt_classifier.pkl"),
         help="Path to save best model (.pkl)",
     )
     parser.add_argument(
         "--report",
-        default=r"D:\thesis_database\classification_report.txt",
+        default=os.path.join(_db_dir, "classification_report.txt"),
         help="Path to save classification report (.txt)",
     )
     args = parser.parse_args()
@@ -498,17 +904,35 @@ def main():
     X = bundle["X"]
     y = bundle["y_bolt"]
     feature_names = bundle["feature_names"]
+    study_ids = bundle["study_ids"]
 
-    # Train (with PCA + SMOTE + XGBoost + try-except)
+    # Train supervised classifiers (RF + XGBoost with PCA + SMOTE)
     results, classes, target_names = train_and_evaluate(
         X, y, feature_names, label_prefix="element",
         model_dir=model_dir,
     )
 
-    # Save
+    # Save supervised model + report
     save_outputs(
         results, classes, target_names, y,
         feature_names, args.model_output, args.report,
+    )
+
+    # Reuse PCA-transformed features from the best supervised model
+    best_name = max(results, key=lambda n: results[n]["mean_acc"])
+    best_pca = results[best_name]["pca"]
+    best_scaler = results[best_name]["scaler"]
+    X_pca = best_pca.transform(best_scaler.transform(X))
+
+    # Lever 4: Binary classifiers (one per bolt)
+    binary_result = train_binary_classifiers(
+        X_pca, y, model_dir=model_dir,
+    )
+
+    # IsolationForest (anomaly detection on healthy cases)
+
+    iso_result = train_isolation_forest(
+        X_pca, y, study_ids=study_ids, model_dir=model_dir,
     )
 
     print("\nDone.")

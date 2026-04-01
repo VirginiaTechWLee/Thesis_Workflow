@@ -31,9 +31,9 @@ def generate_heeds_project(config_path=None, output_path=None):
         study_type_map = {
             'study_A': ('single_bolt_sweep', 'study_A_single_bolt_sweep'),
             'study_B': ('two_bolt_sweep', 'study_B_two_bolt_sweep'),
-            'study_C': ('three_bolt_sweep', 'study_C_three_bolt_sweep'),
+            'study_C': ('staggered_two_bolt', 'study_C_staggered_two_bolt'),
             'study_D': ('monte_carlo', 'study_D_monte_carlo'),
-            'study_E': ('all_bolt_sweep', 'study_E_all_bolt_sweep'),
+            'study_E': ('monte_carlo_healthy', 'study_E_healthy_variation'),
         }
         if study_type_override in study_type_map:
             stype, sname = study_type_map[study_type_override]
@@ -56,6 +56,9 @@ def generate_heeds_project(config_path=None, output_path=None):
         expected_designs = n_bolts * n_non_baseline + 1  # +1 shared baseline design
     elif study_type == 'two_bolt_sweep':
         expected_designs = _comb(n_bolts, 2) * n_non_baseline
+    elif study_type == 'staggered_two_bolt':
+        n_combos = len(config.get('staggered', {}).get('combinations', []))
+        expected_designs = _comb(n_bolts, 2) * n_combos
     elif study_type == 'three_bolt_sweep':
         expected_designs = _comb(n_bolts, 3) * n_non_baseline
     elif study_type == 'all_bolt_sweep':
@@ -63,12 +66,19 @@ def generate_heeds_project(config_path=None, output_path=None):
     elif study_type == 'monte_carlo':
         n_samples = config.get('monte_carlo', {}).get('n_samples', 500)
         expected_designs = n_samples + 1  # +1 for baseline design
+    elif study_type == 'monte_carlo_healthy':
+        n_samples = config.get('monte_carlo_healthy', {}).get('n_samples', 300)
+        expected_designs = n_samples + 1  # +1 for baseline design
     else:
         expected_designs = study.get('expected_designs', len(sweep_levels))
 
-    # Pass monte_carlo config through to _build_xml via the study dict
+    # Pass extra config through to _build_xml via the study dict
     if study_type == 'monte_carlo':
         study['_monte_carlo_config'] = config.get('monte_carlo', {})
+    elif study_type == 'monte_carlo_healthy':
+        study['_monte_carlo_healthy_config'] = config.get('monte_carlo_healthy', {})
+    elif study_type == 'staggered_two_bolt':
+        study['_staggered_config'] = config.get('staggered', {})
 
     if output_path is None:
         output_path = f"{study_name}.heeds"
@@ -100,11 +110,16 @@ def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
     """Build the complete HEEDS XML string."""
 
     structural_model = files['structural_model']
-    random_response = files.get('random_response', 'RandomBeamX.dat')
+    random_response = files['random_response']  # required — no beam-specific default
     bush_template = files.get('bush_template', 'Bush.blk')
     recoveries = files.get('recoveries', 'Recoveries.blk')
     postprocessor = files.get('postprocessor', 'Pch_TO_CSV2.py')
     heeds_python = paths['heeds_python']
+
+    # --- Derived output filenames (Nastran lowercases the stem) ---
+    random_response_base = os.path.splitext(random_response)[0].lower()
+    random_f06 = f"{random_response_base}.f06"
+    random_pch = f"{random_response_base}.pch"
 
     # --- Stiffness Set items in Nastran notation ---
     set_items = [nastran_shorthand(lv) for lv in sweep_levels]
@@ -232,6 +247,44 @@ def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
                     else:
                         row_vals.append(f'    {baseline_idx}')
                 data_rows.append(','.join(row_vals))
+    elif study_type == 'staggered_two_bolt':
+        # Staggered two-bolt: pairs at DIFFERENT stiffness levels.
+        # No ties possible — most degraded bolt always gets the label.
+        # Combos read from config.yaml staggered.combinations (list of [stiff_a, stiff_b]).
+        from itertools import combinations
+        stag_config = study.get('_staggered_config', {})
+        raw_combos = stag_config.get('combinations', [])
+        if not raw_combos:
+            raise ValueError("staggered_two_bolt requires staggered.combinations in config.yaml")
+
+        # Map stiffness values to 1-based set indices
+        stiff_to_idx = {lv: i + 1 for i, lv in enumerate(sweep_levels)}
+        combos = []
+        for pair in raw_combos:
+            sa, sb = float(pair[0]), float(pair[1])
+            if sa not in stiff_to_idx:
+                raise ValueError(f"Staggered combo stiffness {sa:.0e} not in sweep_levels")
+            if sb not in stiff_to_idx:
+                raise ValueError(f"Staggered combo stiffness {sb:.0e} not in sweep_levels")
+            combos.append((stiff_to_idx[sa], stiff_to_idx[sb], sa, sb))
+
+        for bolt_a, bolt_b in combinations(sweep_bolts, 2):
+            for set_idx_a, set_idx_b, stiff_a, stiff_b in combos:
+                ea = int(math.log10(stiff_a))
+                eb = int(math.log10(stiff_b))
+                name = f"bolt{bolt_a}_1e{ea}_bolt{bolt_b}_1e{eb}"
+                design_name_lines.append(f'        <Design name="{name}" map="false" resp="false"/>')
+
+                row_vals = []
+                for var in variables:
+                    var_bolt = int(var.split('bolt')[1])
+                    if var_bolt == bolt_a:
+                        row_vals.append(f'    {set_idx_a}')
+                    elif var_bolt == bolt_b:
+                        row_vals.append(f'    {set_idx_b}')
+                    else:
+                        row_vals.append(f'    {baseline_idx}')
+                data_rows.append(','.join(row_vals))
     elif study_type == 'all_bolt_sweep':
         # All-bolt sweep: all bolts loosen together (Study E — fully degraded)
         for level_i, level in enumerate(sweep_levels):
@@ -268,6 +321,50 @@ def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
                 var_bolt = int(var.split('bolt')[1])
                 if var_bolt not in bolt_levels:
                     bolt_levels[var_bolt] = int(rng.choice(all_indices))
+            row_vals = []
+            for var in variables:
+                var_bolt = int(var.split('bolt')[1])
+                row_vals.append(f'    {bolt_levels[var_bolt]}')
+            data_rows.append(','.join(row_vals))
+    elif study_type == 'monte_carlo_healthy':
+        # Monte Carlo restricted to healthy stiffness range (Study E).
+        # All bolts sampled independently within healthy_levels only.
+        # Every design is class 0 (healthy) by construction.
+        # Stiffness bounds read from config.yaml monte_carlo_healthy section.
+        import numpy as np
+        mch_config = study.get('_monte_carlo_healthy_config', {})
+        n_samples = mch_config.get('n_samples', 300)
+        seed = mch_config.get('seed', 99)
+        rng = np.random.default_rng(seed)
+
+        # Healthy bounds from config — no hardcoded stiffness values
+        healthy_min = float(mch_config.get('stiffness_min', 0))
+        healthy_max = float(mch_config.get('stiffness_max', float('inf')))
+        if healthy_min == 0:
+            raise ValueError("monte_carlo_healthy requires monte_carlo_healthy.stiffness_min in config.yaml")
+        healthy_indices = [
+            i + 1 for i, lv in enumerate(sweep_levels)
+            if lv >= healthy_min and lv <= healthy_max
+        ]
+        if not healthy_indices:
+            raise ValueError(
+                f"No sweep_levels in [{healthy_min:.0e}, {healthy_max:.0e}] "
+                f"for monte_carlo_healthy"
+            )
+
+        # Design 1: baseline (all bolts at baseline)
+        design_name_lines.append(f'        <Design name="healthy_001" map="false" resp="false"/>')
+        data_rows.append(','.join([f'    {baseline_idx}'] * len(variables)))
+
+        # Designs 2 through n_samples+1: random sampling from healthy levels only
+        for i in range(2, n_samples + 2):
+            name = f"healthy_{i:03d}"
+            design_name_lines.append(f'        <Design name="{name}" map="false" resp="false"/>')
+            bolt_levels = {}
+            for var in variables:
+                var_bolt = int(var.split('bolt')[1])
+                if var_bolt not in bolt_levels:
+                    bolt_levels[var_bolt] = int(rng.choice(healthy_indices))
             row_vals = []
             for var in variables:
                 var_bolt = int(var.split('bolt')[1])
@@ -321,7 +418,7 @@ def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
 
   <!--HEEDS.Attribute.Condition-->
   <Condition name="Condition_1">
-    <Item type="FileContain" anlRef="HEEDS.Analysis.File.MDO.Analysis_1" findRef="HEEDS.Output.File.randombeamx.f06" findText="* * * END OF JOB * * *" op="and"/>
+    <Item type="FileContain" anlRef="HEEDS.Analysis.File.MDO.Analysis_1" findRef="HEEDS.Output.File.{random_f06}" findText="* * * END OF JOB * * *" op="and"/>
   </Condition>
 
   <!--HEEDS.Parameter.Variable-->
@@ -352,8 +449,8 @@ def _build_xml(study_name, sweep_bolts, sweep_levels, expected_designs,
         <VisFile type="data" filename="displacement_results_delta.csv" source="analysisFolder"/>
         <VisFile type="image" filename="all_acceleration_dof_T1.png" source="analysisFolder"/>
         <VisFile type="image" filename="all_displacement_dof_T1.png" source="analysisFolder"/>
-        <VisFile type="data" filename="randombeamx.pch" source="analysisFolder"/>
-        <VisFile type="data" filename="randombeamx.f06" source="analysisFolder"/>
+        <VisFile type="data" filename="{random_pch}" source="analysisFolder"/>
+        <VisFile type="data" filename="{random_f06}" source="analysisFolder"/>
         <VisFile type="data" filename="{bush_template}" source="analysisFolder"/>
 <primaryInput ref="HEEDS.Input.File.{structural_model}"/>
         <Reservation active="false" mode="share"/>
@@ -420,7 +517,7 @@ MOVE_DOWN(2)
 GET_COLUMN_FREE(2, -1,',= ')]]></Tag>
           </Data>
         </Output>
-        <Output type="file" path="randombeamx.f06">
+        <Output type="file" path="{random_f06}">
           <Data>
             <source value="analysisFolder"/>
             <delimiters delim="," list="string">{delim}</delimiters>
@@ -429,7 +526,7 @@ GET_COLUMN_FREE(2, -1,',= ')]]></Tag>
             <Meta name="hidden" value=""/>
           </Data>
         </Output>
-        <Output type="file" path="randombeamx.pch">
+        <Output type="file" path="{random_pch}">
           <Data>
             <source value="analysisFolder"/>
             <delimiters delim="," list="string">{delim}</delimiters>

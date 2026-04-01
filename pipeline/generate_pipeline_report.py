@@ -275,7 +275,20 @@ REPORT_CONFIGS = {
             "- Physical interpretation — what do the top features represent\n"
             "- Are CBUSH-related features among the top predictors?\n\n"
             "## Cross-Validation\n"
-            "- CV results if present, stability across folds\n\n"
+            "- Briefly explain what k-fold cross-validation is and why it matters:\n"
+            "  every sample is tested exactly once, giving a more honest accuracy than a single\n"
+            "  train/test split. Each fold is an 80/20 split rotated so no data is wasted.\n"
+            "- Report accuracy per fold and the mean +/- std deviation\n"
+            "- Are the folds consistent or is there high variance between them?\n"
+            "- Compare training accuracy vs CV accuracy — quantify the gap\n\n"
+            "## Overfitting vs Underfitting Analysis\n"
+            "- If train accuracy >> CV accuracy: the model is OVERFITTING (memorizing noise)\n"
+            "- If both are low: the model is UNDERFITTING (too simple or too few features)\n"
+            "- How many training samples per class? Fewer than ~30 per class risks overfitting\n"
+            "- As studies accumulate (A→A+B→A+B+C→A+B+C+D), generalization should improve\n"
+            "- Are there classes with very few samples? Those are overfitting risks\n"
+            "- Recommend: compare this study's CV accuracy to the previous study's — is the model\n"
+            "  generalizing better with more data or plateauing?\n\n"
             "## Assessment\n"
             "- Is this classifier reliable for bolt looseness detection?\n"
             "- What would improve performance (more data, features, tuning)?\n\n"
@@ -519,11 +532,11 @@ def _check_expected_files(data_file, config_file=None):
     file_checks = {
         "structural_model": {
             "role": "Main Nastran input deck (SOL 103 modal analysis)",
-            "default": "Fixed_base_beam.dat",
+            "default": None,  # no beam-specific default — must come from config
         },
         "random_response": {
             "role": "SOL 111 random response deck",
-            "default": "RandomBeamX.dat",
+            "default": None,  # no beam-specific default — must come from config
         },
         "bush_template": {
             "role": "CBUSH/PBUSH property block (swept by HEEDS per design)",
@@ -561,6 +574,11 @@ def _check_expected_files(data_file, config_file=None):
     lines = []
     for key, info in file_checks.items():
         filename = info.get("filename", info["default"])
+        if not filename:
+            lines.append(f"{key}: (not configured) — SKIPPED")
+            lines.append(f"  Role: {info['role']}")
+            lines.append(f"  Set files.{key} in config.yaml")
+            continue
         filepath = os.path.join(fem_input_dir, filename)
         exists = os.path.exists(filepath)
         status = "FOUND" if exists else "MISSING"
