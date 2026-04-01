@@ -120,6 +120,24 @@ def call_llm(system_prompt, user_prompt, max_retries=3):
 # ---------------------------------------------------------------------------
 # Dynamic context block — built from DB + artifacts at runtime
 # ---------------------------------------------------------------------------
+def _check_fem_input_files(config_dir):
+    """Check which FEM input files exist in fem_input/ directory.
+
+    Returns a string listing confirmed files for the context block.
+    """
+    fem_dir = config_dir  # fem_input/
+    confirmed = []
+    for pattern in ["*.dat", "*.DAT", "*.blk", "*.BLK", "config.yaml"]:
+        import glob
+        for f in glob.glob(os.path.join(fem_dir, pattern)):
+            name = os.path.basename(f)
+            if name not in [c for c in confirmed]:
+                confirmed.append(name)
+    if confirmed:
+        return "Input files confirmed present in fem_input/: " + ", ".join(sorted(set(confirmed)))
+    return "Input files: not verified (fem_input/ not found)"
+
+
 def build_context_block(db_path, npz_path, model_dir):
     """Build the full pipeline context injected into every LLM call.
 
@@ -270,6 +288,13 @@ def build_context_block(db_path, npz_path, model_dir):
     except Exception:
         pass
 
+    # FEM input files
+    fem_input_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "fem_input"
+    )
+    fem_input_status = _check_fem_input_files(fem_input_dir)
+
     # Assemble
     block = f"""\
 PIPELINE CONTEXT — READ BEFORE ANALYZING ANY SECTION DATA
@@ -277,6 +302,8 @@ PIPELINE CONTEXT — READ BEFORE ANALYZING ANY SECTION DATA
 
 This is a Virginia Tech M.S. thesis pipeline for bolt looseness
 diagnostics using random vibration PSD signatures and machine learning.
+
+{fem_input_status}
 
 DATABASE CONTENTS (queried live from {os.path.basename(db_path)}):
 {chr(10).join(study_lines)}
@@ -474,6 +501,58 @@ def _parse_f06_emf(f06_path):
     return results
 
 
+def _generate_input_psd_plot(cfg, db_path):
+    """Generate input PSD profile plot from config psd_input data (RULE 13).
+
+    Reads TABRND1 breakpoints from config.yaml fem.psd_input and creates
+    a log-log plot saved to reports/final/input_psd_profile.png.
+
+    Returns: path to generated PNG, or None if data not available.
+    """
+    try:
+        psd_input = cfg.get("fem", {}).get("psd_input", [])
+        if not psd_input:
+            return None
+
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        freqs = [p["freq"] if isinstance(p, dict) else p[0] for p in psd_input]
+        amps = [p["amplitude"] if isinstance(p, dict) else p[1] for p in psd_input]
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.loglog(freqs, amps, 'b-o', linewidth=2, markersize=8)
+        ax.set_xlabel('Frequency (Hz)', fontsize=12)
+        ax.set_ylabel('PSD Amplitude (G$^2$/Hz)', fontsize=12)
+        ax.set_title('Input PSD Profile (TABRND1)', fontsize=14)
+        ax.grid(True, which='both', alpha=0.3)
+        ax.set_xlim(min(freqs) * 0.8, max(freqs) * 1.2)
+
+        # Add breakpoint annotations
+        for f, a in zip(freqs, amps):
+            ax.annotate(f'{f:.0f} Hz\n{a:.2g} G$^2$/Hz',
+                        xy=(f, a), xytext=(10, 10),
+                        textcoords='offset points', fontsize=9,
+                        arrowprops=dict(arrowstyle='->', color='gray'))
+
+        fig.tight_layout()
+
+        output_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "reports", "final"
+        )
+        os.makedirs(output_dir, exist_ok=True)
+        plot_path = os.path.join(output_dir, "input_psd_profile.png")
+        fig.savefig(plot_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        return plot_path
+
+    except Exception as e:
+        print(f"  WARNING: Could not generate input PSD plot: {e}")
+        return None
+
+
 def gather_fem_health(db_path, config_dir):
     """Gather FEM health data: DAT file snippet, expected files, modal info."""
     lines = []
@@ -550,6 +629,29 @@ def gather_fem_health(db_path, config_dir):
         for mode in emf_data:
             lines.append(f"| {mode['mode']} | {mode['freq']:.2f} | "
                          f"{mode['t1']:.4e} | {mode['t2']:.4e} | {mode['t3']:.4e} |")
+
+    # Input PSD profile (RULE 13) — generate plot from config psd_input
+    psd_plot_path = _generate_input_psd_plot(cfg, db_path)
+    if psd_plot_path:
+        lines.append(f"\n## Input PSD Profile:")
+        lines.append(f"  Plot generated: {psd_plot_path}")
+        lines.append("  This log-log plot shows the TABRND1 excitation input (G^2/Hz vs freq).")
+        lines.append("  The flat input PSD means equal energy across the frequency band.")
+    else:
+        lines.append("\n## Input PSD Profile: not generated (psd_input not in config)")
+
+    # FEM utility file inventory (RULE 13)
+    if os.path.isdir(fem_util_dir):
+        all_files = []
+        for root, dirs, files in os.walk(fem_util_dir):
+            for fn in files:
+                rel = os.path.relpath(os.path.join(root, fn), fem_util_dir)
+                sz = os.path.getsize(os.path.join(root, fn))
+                all_files.append((rel, sz))
+        if all_files:
+            lines.append(f"\n## FEM Utility File Inventory ({len(all_files)} files):")
+            for rel, sz in sorted(all_files):
+                lines.append(f"  {rel} ({sz:,} bytes)")
 
     return "\n".join(lines)
 
@@ -1311,7 +1413,14 @@ def generate_docx(output_dir, sections, fem_images=None):
                 "mode_shape_03.png": "Figure: Mode 3 Shape",
                 "frequency_bar_chart.png": "Figure: Natural Frequency Bar Chart",
             }
-            for img_path in fem_images:
+            # Include input PSD profile plot (RULE 13)
+            psd_plot = os.path.join(output_dir, "input_psd_profile.png")
+            all_images = list(fem_images)
+            if os.path.exists(psd_plot):
+                all_images.insert(0, psd_plot)
+                captions["input_psd_profile.png"] = "Figure: Input PSD Profile (TABRND1 Excitation)"
+
+            for img_path in all_images:
                 try:
                     img_name = os.path.basename(img_path)
                     caption = captions.get(img_name, f"Figure: {img_name}")
@@ -1332,6 +1441,29 @@ def generate_docx(output_dir, sections, fem_images=None):
     doc.save(docx_path)
     print(f"\n  Word document saved: {docx_path}")
     return docx_path
+
+
+def generate_pdf(docx_path):
+    """Convert thesis_diagnostic_report.docx to PDF using docx2pdf.
+
+    Requires Microsoft Word or LibreOffice installed on the system.
+    Returns PDF path on success, None on failure.
+    """
+    try:
+        from docx2pdf import convert
+    except ImportError:
+        print("  WARNING: docx2pdf not installed. Skipping PDF generation.")
+        print("  Install with: pip install docx2pdf")
+        return None
+
+    pdf_path = docx_path.replace(".docx", ".pdf")
+    try:
+        convert(docx_path, pdf_path)
+        print(f"\n  PDF saved: {pdf_path}")
+        return pdf_path
+    except Exception as e:
+        print(f"  WARNING: PDF conversion failed: {e}")
+        return None
 
 
 def _md_to_docx(doc, md_text):
@@ -1446,6 +1578,10 @@ def main():
         "--skip-docx", action="store_true",
         help="Skip Word document generation"
     )
+    parser.add_argument(
+        "--section", action="append", default=None,
+        help="Regenerate specific section(s) only, e.g. --section 01 --section 08"
+    )
     args = parser.parse_args()
 
     # Resolve paths from config
@@ -1460,7 +1596,9 @@ def main():
             import yaml
             with open(os.path.join(config_dir, "config.yaml")) as f:
                 cfg = yaml.safe_load(f) or {}
-            db_path = cfg["database"]["default_path"]
+            db_path = cfg.get("database", {}).get("path",
+                     cfg.get("database", {}).get("default_path",
+                     r"D:\thesis_database\thesis_results.db"))
         except Exception:
             db_path = r"D:\thesis_database\thesis_results.db"
 
@@ -1505,11 +1643,31 @@ def main():
     # executive_summary uses all prior sections, no separate data gather
     section_data["executive_summary"] = ""
 
+    # Determine which sections to generate
+    if args.section:
+        selected_nums = set(args.section)
+        print(f"  Regenerating sections: {sorted(selected_nums)}")
+        print()
+    else:
+        selected_nums = None  # all sections
+
     # Generate sections sequentially (each builds on previous)
     completed_sections = []
     t_start = time.time()
 
     for num, key, title in SECTION_ORDER:
+        if selected_nums and num not in selected_nums:
+            # Load existing section from disk if available (for context chain)
+            existing_path = os.path.join(output_dir, f"{num}_{key}.md")
+            if os.path.exists(existing_path):
+                with open(existing_path, 'r', encoding='utf-8') as f:
+                    existing_content = f.read()
+                completed_sections.append((num, key, title, existing_content))
+                print(f"  [{num}] {title} — loaded from disk (not regenerated)")
+            else:
+                completed_sections.append((num, key, title, ""))
+            continue
+
         content = generate_section(
             section_num=num,
             section_key=key,
@@ -1522,7 +1680,8 @@ def main():
         completed_sections.append((num, key, title, content))
 
     elapsed = time.time() - t_start
-    print(f"\nAll 8 sections generated in {elapsed:.0f}s")
+    n_generated = len(selected_nums) if selected_nums else 8
+    print(f"\n{n_generated} section(s) generated in {elapsed:.0f}s")
 
     # Generate Word document
     if not args.skip_docx:
@@ -1536,6 +1695,10 @@ def main():
         docx_path = generate_docx(output_dir, completed_sections, fem_images=fem_images)
         if docx_path:
             print(f"  DOCX: {docx_path}")
+            # Convert DOCX to PDF
+            pdf_path = generate_pdf(docx_path)
+            if pdf_path:
+                print(f"  PDF:  {pdf_path}")
 
     # Summary
     print(f"\n{'=' * 60}")
@@ -1548,6 +1711,7 @@ def main():
         print(f"    {num}_{key}.md")
     if not args.skip_docx:
         print(f"    thesis_diagnostic_report.docx")
+        print(f"    thesis_diagnostic_report.pdf")
     print(f"  Total time: {elapsed:.0f}s")
     print()
 

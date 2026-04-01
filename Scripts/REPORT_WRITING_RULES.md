@@ -402,3 +402,82 @@ Executive Summary must:
    why config.yaml handles structural transition,
    what compute/architecture changes remain
 
+---
+
+## RULE 11 — EXECUTIVE SUMMARY TONE
+
+Section 08 is a thesis executive summary,
+not a pipeline health check report.
+
+NEVER use:
+  "Overall Verdict: PASS/FAIL"
+  "Pipeline Status: HEALTHY"
+  "Assessment: CONDITIONALLY ACCEPTABLE"
+  Any structured verdict header or status badge
+
+ALWAYS close Section 08 with:
+  A forward-looking paragraph about the
+  contribution this research makes to the
+  field. Written in academic thesis voice.
+  No verdict. No status. Just contribution
+  and future direction.
+
+---
+
+## RULE 12 — NEVER INVENT FILE STATUS
+
+If a file path is not confirmed in the context
+block provided to you, say:
+  "File location not verified in this report run."
+
+NEVER say:
+  "File X is missing"
+  "File X was not found"
+  "File X does not exist"
+
+Unless the context block explicitly states
+the file is missing.
+
+The pipeline may store files in locations
+not visible to the report generator.
+Absence of a path in context does NOT mean
+the file is missing.
+
+---
+
+## RULE 13 — FEM UTILITY REPORT REQUIREMENTS
+
+Section 01 must include the following
+FEM visualization content:
+
+1. INPUT PSD PROFILE
+   The TABRND1 table defines the random
+   excitation input. Display the input PSD
+   as a log-log plot (freq vs G^2/Hz).
+   This explains WHY certain frequency bands
+   are sensitive to bolt looseness — the input
+   energy distribution drives the response.
+
+   If a pre-generated plot exists in
+   fem_utility/output/ — use it.
+   If not — the pipeline generates one from
+   config.yaml psd_input data and embeds it
+   in the report.
+
+2. MODE SHAPE IMAGES must be captioned with:
+   - Mode number and natural frequency
+   - Modal effective mass fraction (EMF)
+   - Physical description of the mode shape
+   - Which bolts are most sensitive to
+     stiffness changes in that mode
+
+3. If an image is not found in the expected
+   location, say: "Image to be generated in
+   next FEM utility run." Do NOT say the image
+   is missing or does not exist (Rule 12).
+
+4. FEM UTILITY FILE INVENTORY
+   Include a list of all files confirmed
+   present in fem_utility/ directory in the
+   Section 01 context data.
+
