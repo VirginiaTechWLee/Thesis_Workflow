@@ -144,19 +144,37 @@ def calculate_area(freq_psd_list):
 def apply_performance_pragmas(conn):
     """Apply SQLite pragmas for fast bulk inserts. Call once after connect."""
     conn.execute('PRAGMA synchronous = NORMAL')  # fsync at critical moments — safe + fast
-    conn.execute('PRAGMA journal_mode = DELETE')  # rollback journal — most compatible
-    conn.execute('PRAGMA cache_size = -32768')   # 32 MB page cache (conservative)
+    conn.execute('PRAGMA journal_mode = WAL')     # WAL mode — better write concurrency
+    conn.execute('PRAGMA cache_size = -65536')    # 64 MB page cache
     conn.execute('PRAGMA temp_store = MEMORY')
+    conn.execute('PRAGMA mmap_size = 268435456')  # 256 MB memory-mapped I/O
 
-def get_or_create_study(conn, study_name):
+def get_or_create_study(conn, study_name, force_label=None):
     cursor = conn.cursor()
     cursor.execute('SELECT study_id FROM studies WHERE study_name = ?', (study_name,))
     result = cursor.fetchone()
     if result:
-        return result[0]
+        study_id = result[0]
+        # Update force_label if column exists and value provided
+        if force_label is not None:
+            try:
+                cursor.execute('UPDATE studies SET force_label = ? WHERE study_id = ?',
+                               (force_label, study_id))
+                conn.commit()
+            except Exception:
+                pass  # Column may not exist yet
+        return study_id
     cursor.execute('INSERT INTO studies (study_name, is_baseline) VALUES (?, 0)', (study_name,))
     conn.commit()
-    return cursor.lastrowid
+    study_id = cursor.lastrowid
+    if force_label is not None:
+        try:
+            cursor.execute('UPDATE studies SET force_label = ? WHERE study_id = ?',
+                           (force_label, study_id))
+            conn.commit()
+        except Exception:
+            pass
+    return study_id
 
 def reset_study_data(conn, study_id):
     cursor = conn.cursor()
@@ -364,7 +382,7 @@ def scan_post0_folder(post0_dir):
         designs.append((dn, str(bp), str(pp), str(f06)))
     return designs
 
-def batch_import(post0_dir, study_name, db_path, reset_study=False, dry_run=False):
+def batch_import(post0_dir, study_name, db_path, reset_study=False, dry_run=False, force_label=None):
     print("=" * 60)
     print("  WORKFLOW 3.5: BATCH DATABASE IMPORT")
     print("=" * 60)
@@ -411,8 +429,18 @@ def batch_import(post0_dir, study_name, db_path, reset_study=False, dry_run=Fals
 
     try:
         import time as _time
-        study_id = get_or_create_study(conn, study_name)
+
+        # Ensure force_label column exists (added for Study E healthy variation)
+        try:
+            conn.execute('ALTER TABLE studies ADD COLUMN force_label INTEGER DEFAULT NULL')
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
+
+        study_id = get_or_create_study(conn, study_name, force_label=force_label)
         print(f"\nStudy ID: {study_id}")
+        if force_label is not None:
+            print(f"Force label: {force_label} (all designs labeled as class {force_label})")
         if reset_study:
             d = reset_study_data(conn, study_id)
             print(f"Reset: deleted {d} cases")
@@ -426,8 +454,22 @@ def batch_import(post0_dir, study_name, db_path, reset_study=False, dry_run=Fals
 
         tpsd, tpeak, tparam, tforce, tfpeak, tese = 0, 0, 0, 0, 0, 0
         t0 = _time.time()
+
+        # Detect already-imported designs (for resume after crash)
+        existing_dns = set()
+        if not reset_study:
+            cur = conn.cursor()
+            cur.execute(
+                'SELECT case_number FROM cases WHERE study_id = ?', (study_id,))
+            existing_dns = {r[0] for r in cur.fetchall()}
+            if existing_dns:
+                print(f"Resuming: {len(existing_dns)} designs already imported, skipping them")
+
         print(f"\nImporting {len(designs)} designs (reconnect every {RECONNECT_EVERY})...")
         for i, (dn, bp, pp, f06) in enumerate(designs, 1):
+            if dn in existing_dns:
+                print(f"[{i}/{len(designs)}] Design {dn}... SKIP (already imported)")
+                continue
             print(f"[{i}/{len(designs)}] Design {dn}...", end=" ", flush=True)
             is_bl = (dn == baseline_dn)
             cid = insert_case(conn, study_id, dn, pp, is_baseline=is_bl)
@@ -489,8 +531,11 @@ def main():
     p.add_argument('--db_path', default=DEFAULT_DB_PATH)
     p.add_argument('--reset_study', action='store_true')
     p.add_argument('--dry_run', action='store_true')
+    p.add_argument('--force_label', type=int, default=None,
+                   help='Override label for all designs in this study '
+                        '(e.g. --force_label 0 for Study E healthy variation)')
     a = p.parse_args()
-    return 0 if batch_import(a.post0_dir, a.study, a.db_path, a.reset_study, a.dry_run) else 1
+    return 0 if batch_import(a.post0_dir, a.study, a.db_path, a.reset_study, a.dry_run, a.force_label) else 1
 
 if __name__ == "__main__":
     exit(main())

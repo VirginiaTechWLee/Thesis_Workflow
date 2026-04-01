@@ -1,53 +1,58 @@
-# =============================================================================
-# FEM Pipeline Configuration
-# =============================================================================
-# This file centralizes all model-specific parameters so that swapping to a
-# new FEM requires editing only this file (and dropping in new .dat / .blk).
-# Every pipeline script should read from this config instead of hardcoding.
-# =============================================================================
-
-# --- Study Metadata --------------------------------------------------------
 study:
   name: study_D_monte_carlo
-  description: "Study A: single-bolt sweep, 9 bolts x 9 stiffness levels (73 designs)"
-  type: monte_carlo   # sweep | single_bolt_sweep | doe | monte_carlo
-  sweep_bolts: [2, 3, 4, 5, 6, 7, 8, 9, 10]   # all variable bolts
-  sweep_levels: [1.0e4, 1.0e5, 1.0e6, 1.0e7, 1.0e8, 1.0e9, 1.0e10, 1.0e11, 1.0e12]
-  expected_designs: 501   # 9 bolts x 9 levels = 81 minus 8 duplicates (HEEDS deduplicates baseline-level designs)
-
-# --- FEM Model Files -------------------------------------------------------
+  description: 'Study A: single-bolt sweep, 9 bolts x 9 stiffness levels (73 designs)'
+  type: monte_carlo
+  sweep_bolts:
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  sweep_levels:
+  - 1.0e4
+  - 1.0e5
+  - 1.0e6
+  - 1.0e7
+  - 1.0e8
+  - 1.0e9
+  - 1.0e10
+  - 1.0e11
+  - 1.0e12
+  expected_designs: 301
 files:
-  fem_input_dir: fem_input              # where .dat and .blk live
-  structural_model: Fixed_base_beam.dat # main Nastran input deck
-  random_response: RandomBeamX.dat      # SOL 111 random response deck
-  bush_template: Bush.blk               # CBUSH property include file
-  recoveries: Recoveries.blk            # output recovery include
-  analysis_bat: FBM_TO_DBALL.bat        # solver chain batch script
-  output_pch: randombeamx.pch           # Nastran PCH output
+  fem_input_dir: fem_input
+  structural_model: Fixed_base_beam.dat
+  random_response: RandomBeamX.dat
+  bush_template: Bush.blk
+  recoveries: Recoveries.blk
+  analysis_bat: FBM_TO_DBALL.bat
+  output_pch: randombeamx.pch
   output_csv_accel: acceleration_results.csv
   output_csv_disp: displacement_results.csv
   postprocessor: Pch_TO_CSV2.py
-
-# --- Bolt (CBUSH) Configuration --------------------------------------------
 bolts:
   total: 10
-  driving_bolt: 1                       # fixed reference bolt (never swept)
-  variable_bolts: [2, 3, 4, 5, 6, 7, 8, 9, 10]
-
-  # Translational stiffness (K1, K2, K3) — constant for all bolts
-  translational_stiffness: 1.0e6        # N/m
-
-  # Driving bolt rotational stiffness (K4, K5, K6)
+  driving_bolt: 1
+  variable_bolts:
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  translational_stiffness: 1.0e6
   driving_stiffness:
     K4: 1.0e8
     K5: 1.0e12
     K6: 1.0e12
-
-  # Baseline (healthy) rotational stiffness for variable bolts
-  baseline_stiffness: 1.0e12            # N·m/rad
-
-  # Discrete stiffness levels for parametric sweeps
-  # Level 9 = baseline/healthy, Level 1 = loosest
+  baseline_stiffness: 1.0e12
   stiffness_levels:
     1: 1.0e4
     2: 1.0e5
@@ -58,59 +63,77 @@ bolts:
     7: 1.0e10
     8: 1.0e11
     9: 1.0e12
-
-  # HEEDS sweep bounds
   stiffness_min: 1.0e4
   stiffness_max: 1.0e14
-
-# --- Monte Carlo Settings ---------------------------------------------------
 monte_carlo:
-  n_samples: 500         # number of random designs (total designs = n_samples + 1 for baseline)
-  seed: 42               # random seed for reproducibility
-
-# --- Output Nodes -----------------------------------------------------------
-# Upper beam nodes (structural) and lower measurement nodes
-output_nodes: [1, 111, 222, 333, 444, 555, 666, 777, 888, 999, 1010, 1111]
-
-# --- Degrees of Freedom ----------------------------------------------------
-# Nastran DOF code → human-readable label
+  n_samples: 1000
+  seed: 42
+staggered:
+  combinations:
+  - - 1.0e4
+    - 1.0e6
+  - - 1.0e6
+    - 1.0e4
+  - - 1.0e4
+    - 1.0e8
+  - - 1.0e8
+    - 1.0e4
+  - - 1.0e5
+    - 1.0e7
+  - - 1.0e7
+    - 1.0e5
+  - - 1.0e6
+    - 1.0e9
+  - - 1.0e9
+    - 1.0e6
+monte_carlo_healthy:
+  n_samples: 300
+  seed: 99
+  stiffness_min: 1.0e11
+  stiffness_max: 1.0e12
+output_nodes:
+- 1
+- 111
+- 222
+- 333
+- 444
+- 555
+- 666
+- 777
+- 888
+- 999
+- 1010
+- 1111
 dof_mapping:
-  3: T1    # Translation X
-  4: T2    # Translation Y
-  5: T3    # Translation Z
-  6: R1    # Rotation X
-  7: R2    # Rotation Y
-  8: R3    # Rotation Z
-
-# Which DOFs to use as HEEDS response variables
-output_dofs: [T1, T2, T3]
-
-# --- Peak Detection --------------------------------------------------------
+  3: T1
+  4: T2
+  5: T3
+  6: R1
+  7: R2
+  8: R3
+output_dofs:
+- T1
+- T2
+- T3
 peaks:
-  n_peaks: 3                            # top N peaks per node/DOF channel
-
-# --- Database ---------------------------------------------------------------
+  n_peaks: 3
 database:
   default_path: D:\thesis_database\thesis_results.db
-
-# --- Pipeline Options -------------------------------------------------------
 pipeline:
-  llm_reports: true               # generate LLM reports at each pipeline stage
-
-# --- Analysis Type (for Nastran Utility Workflow) --------------------------
-# sol103  = SOL 103 modal only (generates DBALL)
-# sol111  = SOL 111 random only (assumes DBALL exists)
-# full    = SOL 103 → 10s wait → SOL 111 (full DBALL chain)
+  llm_reports: true
+# --- PCA Settings -----------------------------------------------------------
+# variance_threshold: fraction of variance to retain (0.0-1.0)
+# Calibrate with pca_threshold_sweep.py on each new FEM, then set here.
+pca:
+  variance_threshold: 0.90
 analysis:
   type: full
-  keep_last_runs: 5              # number of timestamped run folders to keep (0 = keep all)
-
-# --- Solver Paths (machine-specific) ---------------------------------------
+  keep_last_runs: 5
 paths:
-  nastran_exe: "C:\\Program Files\\Siemens\\Simcenter3D\\NXNASTRAN\\bin\\nastranw.exe"
-  python_exe: "C:\\ProgramData\\anaconda3\\python.exe"
-  heeds_python: "C:\\HEEDS\\MDO\\Ver2410\\Python3\\python.exe"
-  heeds_mdo_path: "C:\\HEEDS\\MDO\\Ver2410\\Win64\\HEEDSMDO.exe"
-  heeds_solver: "C:\\HEEDS\\MDO\\Ver2410\\Win64\\solver\\heeds.exe"
-  heeds_working_dir: "C:\\Users\\waynelee\\Documents"
-  db_dir: "D:\\thesis_database"
+  nastran_exe: C:\Program Files\Siemens\Simcenter3D\NXNASTRAN\bin\nastranw.exe
+  python_exe: C:\ProgramData\anaconda3\python.exe
+  heeds_python: C:\HEEDS\MDO\Ver2410\Python3\python.exe
+  heeds_mdo_path: C:\HEEDS\MDO\Ver2410\Win64\HEEDSMDO.exe
+  heeds_solver: C:\HEEDS\MDO\Ver2410\Win64\solver\heeds.exe
+  heeds_working_dir: C:\Users\waynelee\Documents
+  db_dir: D:\thesis_database

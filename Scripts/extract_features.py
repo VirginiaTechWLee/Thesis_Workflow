@@ -450,11 +450,15 @@ def extract_spectral_and_delta_features(
 # Miles equation features (fn, Q, PSD_fn, grms, bandwidth per mode per node)
 # ---------------------------------------------------------------------------
 def extract_miles_features(
-    conn: sqlite3.Connection, cases: pd.DataFrame
+    conn: sqlite3.Connection, cases: pd.DataFrame,
+    baseline_cid: int = None,
 ) -> pd.DataFrame:
     """
     From the miles table extract per-case features:
       - fn, Q, PSD_fn, grms, bandwidth for each (node, dof, data_type, mode_number)
+      - delta_fn: relative frequency shift from baseline (Δfn/fn_baseline)
+        This is the most direct indicator of stiffness change per eigenvalue
+        perturbation theory: Δfn/fn ≈ ½(φnᵀΔKφn)/(φnᵀKφn)
     Returns a DataFrame with one row per case.
     """
     print("  Extracting Miles equation features ...")
@@ -468,6 +472,19 @@ def extract_miles_features(
     except sqlite3.OperationalError:
         print("    Miles table not found — skipping Miles features")
         return pd.DataFrame({"case_id": cases["case_id"].values})
+
+    # Load baseline fn values for delta computation
+    bl_fn = {}
+    if baseline_cid is not None:
+        cur = conn.execute(
+            "SELECT node_id, dof, data_type, mode_number, fn "
+            "FROM miles WHERE case_id=? AND fn IS NOT NULL",
+            (int(baseline_cid),),
+        )
+        for node_id, dof, data_type, mode_num, fn in cur.fetchall():
+            key = f"n{node_id}_{dof}_{data_type[:3]}_m{mode_num}"
+            bl_fn[key] = fn
+        print(f"    Baseline fn values: {len(bl_fn)} modes")
 
     rows = []
     case_ids = cases["case_id"].values
@@ -490,13 +507,224 @@ def extract_miles_features(
             rec[f"{prefix}_PSDfn"] = PSD_fn or 0.0
             rec[f"{prefix}_grms"] = grms or 0.0
             rec[f"{prefix}_bw"] = bw or 0.0
+            # Delta fn: relative frequency shift from baseline
+            if prefix in bl_fn and bl_fn[prefix] > 0 and fn:
+                rec[f"{prefix}_dfn"] = (fn - bl_fn[prefix]) / bl_fn[prefix]
+            else:
+                rec[f"{prefix}_dfn"] = 0.0
         rows.append(rec)
 
         if (idx + 1) % 100 == 0 or (idx + 1) == n_cases:
             print(f"    [{idx+1}/{n_cases}]")
 
     df = pd.DataFrame(rows).fillna(0.0)
-    print(f"    Miles features: {df.shape[1] - 1} columns")
+    n_dfn = sum(1 for c in df.columns if c.endswith('_dfn'))
+    print(f"    Miles features: {df.shape[1] - 1} columns ({n_dfn} delta-fn)")
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Strain energy features — per-bolt energy flow signatures
+# ---------------------------------------------------------------------------
+def extract_strain_energy_features(
+    conn: sqlite3.Connection, cases: pd.DataFrame,
+    baseline_cid: int = None,
+) -> pd.DataFrame:
+    """
+    Extract per-bolt strain energy features from the strain_energy table.
+
+    When a bolt loosens, its CBUSH strain energy drops and redistributes
+    to neighboring bolts. This redistribution pattern is a direct per-bolt
+    fault signature.
+
+    Per bolt element: SE_area (total energy), SE_peak, SE_peak_freq,
+                      SE_frac (fraction of total across all bolts),
+                      SE_delta (relative change from baseline area).
+    All discovered dynamically from DB — no hardcoded element IDs.
+    """
+    print("  Extracting strain energy per-bolt features ...")
+
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM strain_energy").fetchone()[0]
+        if count == 0:
+            print("    strain_energy table is empty — skipping")
+            return pd.DataFrame({"case_id": cases["case_id"].values})
+    except sqlite3.OperationalError:
+        print("    strain_energy table not found — skipping")
+        return pd.DataFrame({"case_id": cases["case_id"].values})
+
+    # Discover bolt elements from DB
+    elements = [r[0] for r in conn.execute(
+        "SELECT DISTINCT element_id FROM strain_energy ORDER BY element_id"
+    ).fetchall()]
+    if not elements:
+        print("    No elements in strain_energy — skipping")
+        return pd.DataFrame({"case_id": cases["case_id"].values})
+    print(f"    Bolt elements: {elements}")
+
+    # Baseline SE areas for delta computation
+    bl_areas = {}
+    if baseline_cid is not None:
+        for elem in elements:
+            rows = conn.execute(
+                "SELECT frequency, strain_energy FROM strain_energy "
+                "WHERE case_id=? AND element_id=? ORDER BY frequency",
+                (int(baseline_cid), elem),
+            ).fetchall()
+            if len(rows) >= 2:
+                area = sum(
+                    0.5 * (rows[i+1][1] + rows[i][1]) * (rows[i+1][0] - rows[i][0])
+                    for i in range(len(rows) - 1)
+                )
+                bl_areas[elem] = area
+
+    case_ids = cases["case_id"].values
+    n_cases = len(case_ids)
+    result_rows = []
+
+    for idx, cid in enumerate(case_ids):
+        rec = {"case_id": int(cid)}
+
+        # Fetch all SE data for this case in one query
+        se_data = conn.execute(
+            "SELECT element_id, frequency, strain_energy "
+            "FROM strain_energy WHERE case_id=? ORDER BY element_id, frequency",
+            (int(cid),),
+        ).fetchall()
+
+        # Group by element
+        elem_data = {}
+        for elem, freq, se in se_data:
+            elem_data.setdefault(elem, []).append((freq, se))
+
+        total_area = 0.0
+        elem_areas = {}
+        for elem in elements:
+            pts = elem_data.get(elem, [])
+            if len(pts) >= 2:
+                area = sum(
+                    0.5 * (pts[i+1][1] + pts[i][1]) * (pts[i+1][0] - pts[i][0])
+                    for i in range(len(pts) - 1)
+                )
+                peak_se = max(p[1] for p in pts)
+                peak_freq = max(pts, key=lambda p: p[1])[0]
+            else:
+                area, peak_se, peak_freq = 0.0, 0.0, 0.0
+
+            elem_areas[elem] = area
+            total_area += area
+            rec[f"SE_e{elem}_area"] = area
+            rec[f"SE_e{elem}_peak"] = peak_se
+            rec[f"SE_e{elem}_peakf"] = peak_freq
+
+        # Fraction of total (redistribution pattern)
+        for elem in elements:
+            rec[f"SE_e{elem}_frac"] = elem_areas.get(elem, 0.0) / total_area if total_area > 0 else 0.0
+
+        # Delta from baseline
+        for elem in elements:
+            if elem in bl_areas and bl_areas[elem] > 0:
+                rec[f"SE_e{elem}_delta"] = (elem_areas.get(elem, 0.0) - bl_areas[elem]) / bl_areas[elem]
+            else:
+                rec[f"SE_e{elem}_delta"] = 0.0
+
+        result_rows.append(rec)
+        if (idx + 1) % 100 == 0 or (idx + 1) == n_cases:
+            print(f"    [{idx+1}/{n_cases}]")
+
+    df = pd.DataFrame(result_rows).fillna(0.0)
+    n_feats = df.shape[1] - 1
+    print(f"    Strain energy features: {n_feats} columns "
+          f"({len(elements)} elements × 5 features + deltas)")
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Force PSD per-bolt features
+# ---------------------------------------------------------------------------
+def extract_force_psd_features(
+    conn: sqlite3.Connection, cases: pd.DataFrame,
+    baseline_cid: int = None,
+) -> pd.DataFrame:
+    """
+    Extract per-bolt CBUSH force PSD features from force_psd_data / force_peaks.
+
+    Force through each bolt connection changes with looseness — direct load
+    path signature. Per bolt per DOF: area, peak force, peak freq, delta area.
+    All discovered dynamically from DB.
+    """
+    print("  Extracting force PSD per-bolt features ...")
+
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM force_peaks").fetchone()[0]
+        if count == 0:
+            print("    force_peaks table is empty — skipping")
+            return pd.DataFrame({"case_id": cases["case_id"].values})
+    except sqlite3.OperationalError:
+        print("    force_peaks table not found — skipping")
+        return pd.DataFrame({"case_id": cases["case_id"].values})
+
+    # Discover (element, dof, data_type) combos from force_peaks
+    combos = conn.execute(
+        "SELECT DISTINCT element_id, dof, data_type FROM force_peaks ORDER BY element_id, dof"
+    ).fetchall()
+    if not combos:
+        print("    No force_peaks data — skipping")
+        return pd.DataFrame({"case_id": cases["case_id"].values})
+    print(f"    Force PSD combos: {len(combos)} (element × dof × data_type)")
+
+    # Baseline areas for delta
+    bl_areas = {}
+    if baseline_cid is not None:
+        rows = conn.execute(
+            "SELECT element_id, dof, data_type, area, peak1_freq, peak1_psd "
+            "FROM force_peaks WHERE case_id=?",
+            (int(baseline_cid),),
+        ).fetchall()
+        for elem, dof, dtype, area, _, _ in rows:
+            bl_areas[(elem, dof, dtype)] = area
+
+    case_ids = cases["case_id"].values
+    n_cases = len(case_ids)
+    result_rows = []
+
+    for idx, cid in enumerate(case_ids):
+        rec = {"case_id": int(cid)}
+        peaks = conn.execute(
+            "SELECT element_id, dof, data_type, area, "
+            "peak1_freq, peak1_psd, peak2_freq, peak2_psd, peak3_freq, peak3_psd "
+            "FROM force_peaks WHERE case_id=?",
+            (int(cid),),
+        ).fetchall()
+
+        for row in peaks:
+            elem, dof, dtype = row[0], row[1], row[2]
+            area = row[3] or 0.0
+            pk1f, pk1a = row[4] or 0.0, row[5] or 0.0
+            pk2f, pk2a = row[6] or 0.0, row[7] or 0.0
+            pk3f, pk3a = row[8] or 0.0, row[9] or 0.0
+            prefix = f"FP_e{elem}_{dof}_{dtype[:3]}"
+            rec[f"{prefix}_area"] = area
+            rec[f"{prefix}_pk1f"] = pk1f
+            rec[f"{prefix}_pk1a"] = pk1a
+            rec[f"{prefix}_pk2f"] = pk2f
+            rec[f"{prefix}_pk2a"] = pk2a
+            rec[f"{prefix}_pk3f"] = pk3f
+            rec[f"{prefix}_pk3a"] = pk3a
+
+            # Delta area from baseline
+            key = (elem, dof, dtype)
+            if key in bl_areas and bl_areas[key] > 0:
+                rec[f"{prefix}_d_area"] = (area - bl_areas[key]) / bl_areas[key]
+            else:
+                rec[f"{prefix}_d_area"] = 0.0
+
+        result_rows.append(rec)
+        if (idx + 1) % 100 == 0 or (idx + 1) == n_cases:
+            print(f"    [{idx+1}/{n_cases}]")
+
+    df = pd.DataFrame(result_rows).fillna(0.0)
+    print(f"    Force PSD features: {df.shape[1] - 1} columns")
     return df
 
 
@@ -570,8 +798,40 @@ def build_training_matrix(
     # ------------------------------------------------------------------
     print("\n[3/4] Building labels ...")
     conn = connect(db_path)
+
+    # Check for per-study force_label overrides (e.g. Study E healthy variation)
+    force_label_map = {}
+    try:
+        fl_rows = conn.execute(
+            "SELECT study_id, force_label FROM studies WHERE force_label IS NOT NULL"
+        ).fetchall()
+        for sid, fl in fl_rows:
+            force_label_map[sid] = fl
+        if force_label_map:
+            print(f"  Force-label overrides: {force_label_map}")
+    except Exception:
+        pass  # Column may not exist in older DBs
+
     if has_baseline:
         labels = build_labels(conn, cases, baseline_params, ratio_threshold)
+        # Apply force_label overrides: studies with force_label get that label
+        # regardless of stiffness ratio computation
+        if force_label_map:
+            # Build case_id -> study_id lookup
+            cid_to_sid = dict(conn.execute(
+                "SELECT case_id, study_id FROM cases"
+            ).fetchall())
+            n_overridden = 0
+            for idx, row in labels.iterrows():
+                sid = cid_to_sid.get(int(row["case_id"]))
+                if sid in force_label_map:
+                    fl = force_label_map[sid]
+                    labels.at[idx, "loosened_bolt"] = fl
+                    labels.at[idx, "min_K"] = 0.0
+                    labels.at[idx, "severity"] = 0
+                    labels.at[idx, "label_binary"] = 0 if fl == 0 else 1
+                    n_overridden += 1
+            print(f"  Force-label applied to {n_overridden} cases")
     else:
         # No baseline — assign all labels to 0 (unknown/healthy)
         labels = pd.DataFrame({
@@ -607,10 +867,26 @@ def build_training_matrix(
     gc.collect()
 
     # ------------------------------------------------------------------
-    # Stage 4c: Miles equation features
+    # Stage 4c: Miles equation features (+ delta-fn from baseline)
     # ------------------------------------------------------------------
     conn = connect(db_path)
-    miles_feats = extract_miles_features(conn, cases)
+    miles_feats = extract_miles_features(conn, cases, baseline_cid=baseline_cid)
+    conn.close()
+    gc.collect()
+
+    # ------------------------------------------------------------------
+    # Stage 4d: Strain energy per-bolt features
+    # ------------------------------------------------------------------
+    conn = connect(db_path)
+    se_feats = extract_strain_energy_features(conn, cases, baseline_cid=baseline_cid)
+    conn.close()
+    gc.collect()
+
+    # ------------------------------------------------------------------
+    # Stage 4e: Force PSD per-bolt features
+    # ------------------------------------------------------------------
+    conn = connect(db_path)
+    fp_feats = extract_force_psd_features(conn, cases, baseline_cid=baseline_cid)
     conn.close()
     gc.collect()
 
@@ -621,11 +897,19 @@ def build_training_matrix(
     merged = merged.merge(spectral_feats, on="case_id", how="left")
     merged = merged.merge(delta_feats, on="case_id", how="left")
     merged = merged.merge(miles_feats, on="case_id", how="left")
+    merged = merged.merge(se_feats, on="case_id", how="left")
+    merged = merged.merge(fp_feats, on="case_id", how="left")
     merged = merged.fillna(0.0)
+
+    # Add study_id per row (needed for IsolationForest to identify Study E)
+    conn2 = connect(db_path)
+    cid_sid = dict(conn2.execute("SELECT case_id, study_id FROM cases").fetchall())
+    merged["study_id"] = merged["case_id"].map(cid_sid).fillna(-1).astype(int)
+    conn2.close()
 
     meta_cols = [
         "case_id", "case_number", "loosened_bolt",
-        "min_K", "severity", "label_binary",
+        "min_K", "severity", "label_binary", "study_id",
     ]
     feature_cols = [c for c in merged.columns if c not in meta_cols]
 
@@ -643,7 +927,7 @@ def build_training_matrix(
     # PSD values, GRMS) — NOT to frequency or Q features.
     # ------------------------------------------------------------------
     amplitude_tags = ['_area', '_pk1a', '_pk2a', '_pk3a', '_PSDfn', '_grms',
-                      '_rms', '_band']
+                      '_rms', '_band', '_d_area', '_peak']
     n_cleaned = 0
     n_values_zeroed = 0
     for i, col in enumerate(feature_cols):
@@ -670,7 +954,8 @@ def build_training_matrix(
     n_log = 0
     for i, col in enumerate(feature_cols):
         if any(tag in col for tag in ['_rms', '_band', '_d_rms', '_d_band',
-                                        '_PSDfn', '_grms', '_bw']):
+                                        '_PSDfn', '_grms', '_bw',
+                                        '_area', '_peak', '_pk1a', '_pk2a', '_pk3a']):
             X[:, i] = np.sign(X[:, i]) * np.log10(np.abs(X[:, i]) + 1)
             n_log += 1
     print(f"  Log-transformed: {n_log} amplitude columns")
@@ -710,13 +995,15 @@ def build_training_matrix(
         y_binary=y_binary,
         feature_names=np.array(feature_cols),
         case_numbers=merged["case_number"].values,
+        study_ids=merged["study_id"].values,
         freq_grid=common_freq,
         scaler_mean=scaler.mean_,
         scaler_scale=scaler.scale_,
     )
     print(f"\n  Saved: {output_path}")
     print(f"         Arrays: X, y_bolt, y_severity, y_binary, "
-          f"feature_names, case_numbers, freq_grid, scaler_mean, scaler_scale")
+          f"feature_names, case_numbers, study_ids, freq_grid, "
+          f"scaler_mean, scaler_scale")
 
     try:
         merged.to_csv(csv_path, index=False, float_format="%.8g")

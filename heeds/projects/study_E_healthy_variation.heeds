@@ -1,0 +1,953 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE HEEDSProject>
+<!--       HEEDS Data Model document
+    Copyright (c) 2024 Siemens. All rights reserved.
+
+    study_E_healthy_variation - Auto-generated from fem_input/config.yaml
+    Generated: 2026-04-01T09:06:35
+    Sweep bolts: [2, 3, 4, 5, 6, 7, 8, 9, 10]
+    Levels: 9 designs
+-->
+<Project app="HEEDSMDO" build="241030" version="2410.0">
+  <!--Project Data-->
+  <Meta name="scriptEngine">Python3</Meta>
+
+  <!--HEEDS.Attribute.Set-->
+  <Set name="set_study_E_healthy_variation_K" ordered="1">
+    <Item value="1.+4"/>
+    <Item value="1.+5"/>
+    <Item value="1.+6"/>
+    <Item value="1.+7"/>
+    <Item value="1.+8"/>
+    <Item value="1.+9"/>
+    <Item value="1.+10"/>
+    <Item value="1.+11"/>
+    <Item value="1.+12"/>
+  </Set>
+
+  <!--HEEDS.Attribute.Condition-->
+  <Condition name="Condition_1">
+    <Item type="FileContain" anlRef="HEEDS.Analysis.File.MDO.Analysis_1" findRef="HEEDS.Output.File.randombeamx.f06" findText="* * * END OF JOB * * *" op="and"/>
+  </Condition>
+
+  <!--HEEDS.Parameter.Variable-->
+  <Variable name="K4_bolt2" flags="2048" numInTags="1"/>
+  <Variable name="K5_bolt2" flags="2048" numInTags="1"/>
+  <Variable name="K6_bolt2" flags="2048" numInTags="1"/>
+  <Variable name="K4_bolt3" flags="2048" numInTags="1"/>
+  <Variable name="K5_bolt3" flags="2048" numInTags="1"/>
+  <Variable name="K6_bolt3" flags="2048" numInTags="1"/>
+  <Variable name="K4_bolt4" flags="2048" numInTags="1"/>
+  <Variable name="K5_bolt4" flags="2048" numInTags="1"/>
+  <Variable name="K6_bolt4" flags="2048" numInTags="1"/>
+  <Variable name="K4_bolt5" flags="2048" numInTags="1"/>
+  <Variable name="K5_bolt5" flags="2048" numInTags="1"/>
+  <Variable name="K6_bolt5" flags="2048" numInTags="1"/>
+  <Variable name="K4_bolt6" flags="2048" numInTags="1"/>
+  <Variable name="K5_bolt6" flags="2048" numInTags="1"/>
+  <Variable name="K6_bolt6" flags="2048" numInTags="1"/>
+  <Variable name="K4_bolt7" flags="2048" numInTags="1"/>
+  <Variable name="K5_bolt7" flags="2048" numInTags="1"/>
+  <Variable name="K6_bolt7" flags="2048" numInTags="1"/>
+  <Variable name="K4_bolt8" flags="2048" numInTags="1"/>
+  <Variable name="K5_bolt8" flags="2048" numInTags="1"/>
+  <Variable name="K6_bolt8" flags="2048" numInTags="1"/>
+  <Variable name="K4_bolt9" flags="2048" numInTags="1"/>
+  <Variable name="K5_bolt9" flags="2048" numInTags="1"/>
+  <Variable name="K6_bolt9" flags="2048" numInTags="1"/>
+  <Variable name="K4_bolt10" flags="2048" numInTags="1"/>
+  <Variable name="K5_bolt10" flags="2048" numInTags="1"/>
+  <Variable name="K6_bolt10" flags="2048" numInTags="1"/>
+
+  <!--HEEDS.Parameter.Response-->
+  <Response name="Response_Array" type="File" acceptMax="" acceptMin="" flags="2048" numOutTags="1"/>
+  <Response name="Modes1" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[1-1]"/>
+  <Response name="Modes2" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[2-1]"/>
+  <Response name="Modes3" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[3-1]"/>
+  <Response name="Modes4" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[4-1]"/>
+  <Response name="Modes5" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[5-1]"/>
+  <Response name="Modes6" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[6-1]"/>
+  <Response name="Modes7" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[7-1]"/>
+  <Response name="Modes8" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[8-1]"/>
+  <Response name="Modes9" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[9-1]"/>
+  <Response name="Modes10" type="Formula" acceptMax="" acceptMin="" formula="Response_Array[10-1]"/>
+
+  <!--HEEDS.Process-->
+  <Process name="Process_1" current="true" parallel="false">
+
+    <!--HEEDS.Analysis.File.MDO-->
+    <MDO name="Analysis_1" active="true" solver="General">
+      <Data type="MDO" resource="Local" useMaxTime="true">
+        <anlCommand value="FBM_TO_DBALL.bat"/>
+        <anlArgs value=""/>
+        <anlShell value="cmd.exe"/>
+        <anlFolder value="designFolder"/>
+        <anlErrorMode value="STOP"/>
+        <anlInfeasibleMode value="CONTINUE"/>
+        <anlCreateNewDesignOnError value="false"/>
+        <anlDontCountAsEvalOnError value="false"/>
+        <anlCaptureOutput value="true"/>
+        <decimalDelimiter value="fromPortal"/>
+        <VisFile type="data" filename="acceleration_results.csv" source="analysisFolder"/>
+        <VisFile type="data" filename="acceleration_results_delta.csv" source="analysisFolder"/>
+        <VisFile type="data" filename="displacement_results.csv" source="analysisFolder"/>
+        <VisFile type="data" filename="displacement_results_delta.csv" source="analysisFolder"/>
+        <VisFile type="image" filename="all_acceleration_dof_T1.png" source="analysisFolder"/>
+        <VisFile type="image" filename="all_displacement_dof_T1.png" source="analysisFolder"/>
+        <VisFile type="data" filename="randombeamx.pch" source="analysisFolder"/>
+        <VisFile type="data" filename="randombeamx.f06" source="analysisFolder"/>
+        <VisFile type="data" filename="Bush.blk" source="analysisFolder"/>
+<primaryInput ref="HEEDS.Input.File.Fixed_base_beam.dat"/>
+        <Reservation active="false" mode="share"/>
+        <FinishCondition ref="HEEDS.Attribute.Condition.Condition_1"/>
+        <RunCondition folder="designFolder" ref="" resource="LOCAL"/>
+        <SuccessCondition ref=""/>
+      </Data>
+
+      <!--Inputs-->
+      <Inputs>
+        <Input type="file" path="Bush.blk">
+          <Data>
+            <source value="projectFolder"/>
+            <target value="analysisFolder"/>
+            <delimiters delim="," list="string">&quot;,&quot;,;,&quot;&quot;,=,(,),',\t,\s</delimiters>
+            <widths list="int">8</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+            <Tag charCol="48" col="6" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K4_bolt2" row="3"/>
+            <Tag charCol="56" col="7" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K5_bolt2" row="3"/>
+            <Tag charCol="64" col="8" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K6_bolt2" row="3"/>
+            <Tag charCol="48" col="6" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K4_bolt3" row="5"/>
+            <Tag charCol="56" col="7" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K5_bolt3" row="5"/>
+            <Tag charCol="64" col="8" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K6_bolt3" row="5"/>
+            <Tag charCol="48" col="6" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K4_bolt4" row="7"/>
+            <Tag charCol="56" col="7" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K5_bolt4" row="7"/>
+            <Tag charCol="64" col="8" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K6_bolt4" row="7"/>
+            <Tag charCol="48" col="6" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K4_bolt5" row="9"/>
+            <Tag charCol="56" col="7" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K5_bolt5" row="9"/>
+            <Tag charCol="64" col="8" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K6_bolt5" row="9"/>
+            <Tag charCol="48" col="6" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K4_bolt6" row="11"/>
+            <Tag charCol="56" col="7" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K5_bolt6" row="11"/>
+            <Tag charCol="64" col="8" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K6_bolt6" row="11"/>
+            <Tag charCol="48" col="6" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K4_bolt7" row="13"/>
+            <Tag charCol="56" col="7" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K5_bolt7" row="13"/>
+            <Tag charCol="64" col="8" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K6_bolt7" row="13"/>
+            <Tag charCol="48" col="6" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K4_bolt8" row="15"/>
+            <Tag charCol="56" col="7" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K5_bolt8" row="15"/>
+            <Tag charCol="64" col="8" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K6_bolt8" row="15"/>
+            <Tag charCol="48" col="6" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K4_bolt9" row="17"/>
+            <Tag charCol="56" col="7" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K5_bolt9" row="17"/>
+            <Tag charCol="64" col="8" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K6_bolt9" row="17"/>
+            <Tag charCol="48" col="6" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K4_bolt10" row="19"/>
+            <Tag charCol="56" col="7" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K5_bolt10" row="19"/>
+            <Tag charCol="64" col="8" format="HEEDS.Static.Format.Fixed 8" mode="fixed" ref="HEEDS.Parameter.Variable.K6_bolt10" row="19"/>
+          </Data>
+        </Input>
+        <Input type="file" path="Fixed_base_beam.dat">
+          <Data>
+            <source value="projectFolder"/>
+            <target value="analysisFolder"/>
+            <delimiters delim="," list="string">&quot;,&quot;,;,&quot;&quot;,=,(,),',\t,\s</delimiters>
+            <widths list="int">8</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Input>
+        <Input type="file" path="RandomBeamX.dat">
+          <Data>
+            <source value="projectFolder"/>
+            <target value="analysisFolder"/>
+          </Data>
+        </Input>
+        <Input type="file" path="Recoveries.blk">
+          <Data>
+            <source value="projectFolder"/>
+            <target value="analysisFolder"/>
+          </Data>
+        </Input>
+        <Input type="file" path="Pch_TO_CSV2.py">
+          <Data>
+            <source value="projectFolder"/>
+            <target value="analysisFolder"/>
+          </Data>
+        </Input>
+      </Inputs>
+
+      <!--Outputs-->
+      <Outputs>
+        <Output type="file" path="fixed_base_beam.f06">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">&quot;,&quot;,;,&quot;&quot;,=,(,),',\t,\s</delimiters>
+            <widths list="int">8</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+            <Tag mode="script" ref="HEEDS.Parameter.Response.Response_Array"><![CDATA[SET_PARAMETER_LIST(%names%) $ auto-generated parameter name list
+GOTO_STRING('FRACTION', 3)
+MOVE_DOWN(2)
+GET_COLUMN_FREE(2, -1,',= ')]]></Tag>
+          </Data>
+        </Output>
+        <Output type="file" path="randombeamx.f06">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">&quot;,&quot;,;,&quot;&quot;,=,(,),',\t,\s</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+        <Output type="file" path="randombeamx.pch">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">&quot;,&quot;,;,&quot;&quot;,=,(,),',\t,\s</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="ForceReparse" value="true"/>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+        <Output type="file" path="acceleration_results.csv">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">&quot;,&quot;,;,&quot;&quot;,=,(,),',\t,\s</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+        <Output type="file" path="displacement_results.csv">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">&quot;,&quot;,;,&quot;&quot;,=,(,),',\t,\s</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+        <Output type="file" path="acceleration_results_delta.csv">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">&quot;,&quot;,;,&quot;&quot;,=,(,),',\t,\s</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+        <Output type="file" path="displacement_results_delta.csv">
+          <Data>
+            <source value="analysisFolder"/>
+            <delimiters delim="," list="string">&quot;,&quot;,;,&quot;&quot;,=,(,),',\t,\s</delimiters>
+            <widths list="int">10</widths>
+            <Meta name="hidden" value=""/>
+          </Data>
+        </Output>
+      </Outputs>
+    </MDO>
+
+    <!--Execution Order-->
+    <AnalysisGroup type="Serial">
+      <Analysis ref="HEEDS.Analysis.File.MDO.Analysis_1"/>
+    </AnalysisGroup>
+  </Process>
+
+  <!--HEEDS.Study-->
+  <Study name="Study_1" current="true" id="1" postfolder="POST_0" prefix="HEEDS" randomSeed="0.1" status="NotStarted">
+    <Meta name="aviewTimeMode">total</Meta>
+    <Meta name="msgsel">study</Meta>
+    <RunOptions>
+      <CaptureOutput value="true"/>
+      <IgnoreBaseline value="false"/>
+      <OutputUsingCSH value="false"/>
+      <ReEvalError value="false"/>
+      <ReEvalRepeat value="false"/>
+      <ResponseOut value="true"/>
+      <SaveHistory value="true"/>
+      <SaveRestart value="true"/>
+      <ScriptExecution value="false"/>
+      <SharedDesignsFirst value="first"/>
+      <SkipFirstEvalCheck value="false"/>
+      <UseBaseline value="false"/>
+      <VerboseExec value="false"/>
+      <VerboseScript value="false"/>
+      <VerboseSearch value="false"/>
+      <WaitLicense value="false"/>
+    </RunOptions>
+
+    <!--HEEDS.Agent-->
+    <Agent name="Sweep_1" type="EVAL" checksum="5a98" evalFolder="" id="0" lastUpdate="2026-04-01T09:06:35" method=": DesignSweep" numEvalsTotal="301" outputPrecision="16" postfolder="POST_0" prefix="HEEDS" saveErrorMode="saveOnly" saveMode="None">
+      <Process ref="HEEDS.Process.Process_1"/>
+
+      <!--HEEDS.AgentParameter.Variable-->
+      <Variable name="K4_bolt2" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K4_bolt2" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K5_bolt2" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K5_bolt2" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K6_bolt2" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K6_bolt2" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K4_bolt3" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K4_bolt3" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K5_bolt3" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K5_bolt3" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K6_bolt3" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K6_bolt3" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K4_bolt4" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K4_bolt4" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K5_bolt4" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K5_bolt4" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K6_bolt4" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K6_bolt4" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K4_bolt5" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K4_bolt5" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K5_bolt5" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K5_bolt5" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K6_bolt5" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K6_bolt5" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K4_bolt6" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K4_bolt6" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K5_bolt6" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K5_bolt6" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K6_bolt6" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K6_bolt6" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K4_bolt7" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K4_bolt7" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K5_bolt7" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K5_bolt7" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K6_bolt7" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K6_bolt7" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K4_bolt8" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K4_bolt8" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K5_bolt8" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K5_bolt8" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K6_bolt8" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K6_bolt8" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K4_bolt9" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K4_bolt9" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K5_bolt9" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K5_bolt9" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K6_bolt9" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K6_bolt9" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K4_bolt10" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K4_bolt10" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K5_bolt10" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K5_bolt10" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+      <Variable name="K6_bolt10" type="Discrete" baseline="1" ref="HEEDS.Parameter.Variable.K6_bolt10" set_ref="HEEDS.Attribute.Set.set_study_E_healthy_variation_K" state="Required"/>
+
+      <!--HEEDS.AgentParameter.Response-->
+      <Response name="Response_Array" ref="HEEDS.Parameter.Response.Response_Array" state="Required"/>
+      <Response name="Modes1" ref="HEEDS.Parameter.Response.Modes1" state="Included"/>
+      <Response name="Modes2" ref="HEEDS.Parameter.Response.Modes2" state="Included"/>
+      <Response name="Modes3" ref="HEEDS.Parameter.Response.Modes3" state="Included"/>
+      <Response name="Modes4" ref="HEEDS.Parameter.Response.Modes4" state="Included"/>
+      <Response name="Modes5" ref="HEEDS.Parameter.Response.Modes5" state="Included"/>
+      <Response name="Modes6" ref="HEEDS.Parameter.Response.Modes6" state="Included"/>
+      <Response name="Modes7" ref="HEEDS.Parameter.Response.Modes7" state="Included"/>
+      <Response name="Modes8" ref="HEEDS.Parameter.Response.Modes8" state="Included"/>
+      <Response name="Modes9" ref="HEEDS.Parameter.Response.Modes9" state="Included"/>
+      <Response name="Modes10" ref="HEEDS.Parameter.Response.Modes10" state="Included"/>
+
+      <!--HEEDS.UserDesignSet — 301 deterministic designs-->
+      <UserDesignSet name="study_E_healthy_variation">
+        <Design name="healthy_001" map="false" resp="false"/>
+        <Design name="healthy_002" map="false" resp="false"/>
+        <Design name="healthy_003" map="false" resp="false"/>
+        <Design name="healthy_004" map="false" resp="false"/>
+        <Design name="healthy_005" map="false" resp="false"/>
+        <Design name="healthy_006" map="false" resp="false"/>
+        <Design name="healthy_007" map="false" resp="false"/>
+        <Design name="healthy_008" map="false" resp="false"/>
+        <Design name="healthy_009" map="false" resp="false"/>
+        <Design name="healthy_010" map="false" resp="false"/>
+        <Design name="healthy_011" map="false" resp="false"/>
+        <Design name="healthy_012" map="false" resp="false"/>
+        <Design name="healthy_013" map="false" resp="false"/>
+        <Design name="healthy_014" map="false" resp="false"/>
+        <Design name="healthy_015" map="false" resp="false"/>
+        <Design name="healthy_016" map="false" resp="false"/>
+        <Design name="healthy_017" map="false" resp="false"/>
+        <Design name="healthy_018" map="false" resp="false"/>
+        <Design name="healthy_019" map="false" resp="false"/>
+        <Design name="healthy_020" map="false" resp="false"/>
+        <Design name="healthy_021" map="false" resp="false"/>
+        <Design name="healthy_022" map="false" resp="false"/>
+        <Design name="healthy_023" map="false" resp="false"/>
+        <Design name="healthy_024" map="false" resp="false"/>
+        <Design name="healthy_025" map="false" resp="false"/>
+        <Design name="healthy_026" map="false" resp="false"/>
+        <Design name="healthy_027" map="false" resp="false"/>
+        <Design name="healthy_028" map="false" resp="false"/>
+        <Design name="healthy_029" map="false" resp="false"/>
+        <Design name="healthy_030" map="false" resp="false"/>
+        <Design name="healthy_031" map="false" resp="false"/>
+        <Design name="healthy_032" map="false" resp="false"/>
+        <Design name="healthy_033" map="false" resp="false"/>
+        <Design name="healthy_034" map="false" resp="false"/>
+        <Design name="healthy_035" map="false" resp="false"/>
+        <Design name="healthy_036" map="false" resp="false"/>
+        <Design name="healthy_037" map="false" resp="false"/>
+        <Design name="healthy_038" map="false" resp="false"/>
+        <Design name="healthy_039" map="false" resp="false"/>
+        <Design name="healthy_040" map="false" resp="false"/>
+        <Design name="healthy_041" map="false" resp="false"/>
+        <Design name="healthy_042" map="false" resp="false"/>
+        <Design name="healthy_043" map="false" resp="false"/>
+        <Design name="healthy_044" map="false" resp="false"/>
+        <Design name="healthy_045" map="false" resp="false"/>
+        <Design name="healthy_046" map="false" resp="false"/>
+        <Design name="healthy_047" map="false" resp="false"/>
+        <Design name="healthy_048" map="false" resp="false"/>
+        <Design name="healthy_049" map="false" resp="false"/>
+        <Design name="healthy_050" map="false" resp="false"/>
+        <Design name="healthy_051" map="false" resp="false"/>
+        <Design name="healthy_052" map="false" resp="false"/>
+        <Design name="healthy_053" map="false" resp="false"/>
+        <Design name="healthy_054" map="false" resp="false"/>
+        <Design name="healthy_055" map="false" resp="false"/>
+        <Design name="healthy_056" map="false" resp="false"/>
+        <Design name="healthy_057" map="false" resp="false"/>
+        <Design name="healthy_058" map="false" resp="false"/>
+        <Design name="healthy_059" map="false" resp="false"/>
+        <Design name="healthy_060" map="false" resp="false"/>
+        <Design name="healthy_061" map="false" resp="false"/>
+        <Design name="healthy_062" map="false" resp="false"/>
+        <Design name="healthy_063" map="false" resp="false"/>
+        <Design name="healthy_064" map="false" resp="false"/>
+        <Design name="healthy_065" map="false" resp="false"/>
+        <Design name="healthy_066" map="false" resp="false"/>
+        <Design name="healthy_067" map="false" resp="false"/>
+        <Design name="healthy_068" map="false" resp="false"/>
+        <Design name="healthy_069" map="false" resp="false"/>
+        <Design name="healthy_070" map="false" resp="false"/>
+        <Design name="healthy_071" map="false" resp="false"/>
+        <Design name="healthy_072" map="false" resp="false"/>
+        <Design name="healthy_073" map="false" resp="false"/>
+        <Design name="healthy_074" map="false" resp="false"/>
+        <Design name="healthy_075" map="false" resp="false"/>
+        <Design name="healthy_076" map="false" resp="false"/>
+        <Design name="healthy_077" map="false" resp="false"/>
+        <Design name="healthy_078" map="false" resp="false"/>
+        <Design name="healthy_079" map="false" resp="false"/>
+        <Design name="healthy_080" map="false" resp="false"/>
+        <Design name="healthy_081" map="false" resp="false"/>
+        <Design name="healthy_082" map="false" resp="false"/>
+        <Design name="healthy_083" map="false" resp="false"/>
+        <Design name="healthy_084" map="false" resp="false"/>
+        <Design name="healthy_085" map="false" resp="false"/>
+        <Design name="healthy_086" map="false" resp="false"/>
+        <Design name="healthy_087" map="false" resp="false"/>
+        <Design name="healthy_088" map="false" resp="false"/>
+        <Design name="healthy_089" map="false" resp="false"/>
+        <Design name="healthy_090" map="false" resp="false"/>
+        <Design name="healthy_091" map="false" resp="false"/>
+        <Design name="healthy_092" map="false" resp="false"/>
+        <Design name="healthy_093" map="false" resp="false"/>
+        <Design name="healthy_094" map="false" resp="false"/>
+        <Design name="healthy_095" map="false" resp="false"/>
+        <Design name="healthy_096" map="false" resp="false"/>
+        <Design name="healthy_097" map="false" resp="false"/>
+        <Design name="healthy_098" map="false" resp="false"/>
+        <Design name="healthy_099" map="false" resp="false"/>
+        <Design name="healthy_100" map="false" resp="false"/>
+        <Design name="healthy_101" map="false" resp="false"/>
+        <Design name="healthy_102" map="false" resp="false"/>
+        <Design name="healthy_103" map="false" resp="false"/>
+        <Design name="healthy_104" map="false" resp="false"/>
+        <Design name="healthy_105" map="false" resp="false"/>
+        <Design name="healthy_106" map="false" resp="false"/>
+        <Design name="healthy_107" map="false" resp="false"/>
+        <Design name="healthy_108" map="false" resp="false"/>
+        <Design name="healthy_109" map="false" resp="false"/>
+        <Design name="healthy_110" map="false" resp="false"/>
+        <Design name="healthy_111" map="false" resp="false"/>
+        <Design name="healthy_112" map="false" resp="false"/>
+        <Design name="healthy_113" map="false" resp="false"/>
+        <Design name="healthy_114" map="false" resp="false"/>
+        <Design name="healthy_115" map="false" resp="false"/>
+        <Design name="healthy_116" map="false" resp="false"/>
+        <Design name="healthy_117" map="false" resp="false"/>
+        <Design name="healthy_118" map="false" resp="false"/>
+        <Design name="healthy_119" map="false" resp="false"/>
+        <Design name="healthy_120" map="false" resp="false"/>
+        <Design name="healthy_121" map="false" resp="false"/>
+        <Design name="healthy_122" map="false" resp="false"/>
+        <Design name="healthy_123" map="false" resp="false"/>
+        <Design name="healthy_124" map="false" resp="false"/>
+        <Design name="healthy_125" map="false" resp="false"/>
+        <Design name="healthy_126" map="false" resp="false"/>
+        <Design name="healthy_127" map="false" resp="false"/>
+        <Design name="healthy_128" map="false" resp="false"/>
+        <Design name="healthy_129" map="false" resp="false"/>
+        <Design name="healthy_130" map="false" resp="false"/>
+        <Design name="healthy_131" map="false" resp="false"/>
+        <Design name="healthy_132" map="false" resp="false"/>
+        <Design name="healthy_133" map="false" resp="false"/>
+        <Design name="healthy_134" map="false" resp="false"/>
+        <Design name="healthy_135" map="false" resp="false"/>
+        <Design name="healthy_136" map="false" resp="false"/>
+        <Design name="healthy_137" map="false" resp="false"/>
+        <Design name="healthy_138" map="false" resp="false"/>
+        <Design name="healthy_139" map="false" resp="false"/>
+        <Design name="healthy_140" map="false" resp="false"/>
+        <Design name="healthy_141" map="false" resp="false"/>
+        <Design name="healthy_142" map="false" resp="false"/>
+        <Design name="healthy_143" map="false" resp="false"/>
+        <Design name="healthy_144" map="false" resp="false"/>
+        <Design name="healthy_145" map="false" resp="false"/>
+        <Design name="healthy_146" map="false" resp="false"/>
+        <Design name="healthy_147" map="false" resp="false"/>
+        <Design name="healthy_148" map="false" resp="false"/>
+        <Design name="healthy_149" map="false" resp="false"/>
+        <Design name="healthy_150" map="false" resp="false"/>
+        <Design name="healthy_151" map="false" resp="false"/>
+        <Design name="healthy_152" map="false" resp="false"/>
+        <Design name="healthy_153" map="false" resp="false"/>
+        <Design name="healthy_154" map="false" resp="false"/>
+        <Design name="healthy_155" map="false" resp="false"/>
+        <Design name="healthy_156" map="false" resp="false"/>
+        <Design name="healthy_157" map="false" resp="false"/>
+        <Design name="healthy_158" map="false" resp="false"/>
+        <Design name="healthy_159" map="false" resp="false"/>
+        <Design name="healthy_160" map="false" resp="false"/>
+        <Design name="healthy_161" map="false" resp="false"/>
+        <Design name="healthy_162" map="false" resp="false"/>
+        <Design name="healthy_163" map="false" resp="false"/>
+        <Design name="healthy_164" map="false" resp="false"/>
+        <Design name="healthy_165" map="false" resp="false"/>
+        <Design name="healthy_166" map="false" resp="false"/>
+        <Design name="healthy_167" map="false" resp="false"/>
+        <Design name="healthy_168" map="false" resp="false"/>
+        <Design name="healthy_169" map="false" resp="false"/>
+        <Design name="healthy_170" map="false" resp="false"/>
+        <Design name="healthy_171" map="false" resp="false"/>
+        <Design name="healthy_172" map="false" resp="false"/>
+        <Design name="healthy_173" map="false" resp="false"/>
+        <Design name="healthy_174" map="false" resp="false"/>
+        <Design name="healthy_175" map="false" resp="false"/>
+        <Design name="healthy_176" map="false" resp="false"/>
+        <Design name="healthy_177" map="false" resp="false"/>
+        <Design name="healthy_178" map="false" resp="false"/>
+        <Design name="healthy_179" map="false" resp="false"/>
+        <Design name="healthy_180" map="false" resp="false"/>
+        <Design name="healthy_181" map="false" resp="false"/>
+        <Design name="healthy_182" map="false" resp="false"/>
+        <Design name="healthy_183" map="false" resp="false"/>
+        <Design name="healthy_184" map="false" resp="false"/>
+        <Design name="healthy_185" map="false" resp="false"/>
+        <Design name="healthy_186" map="false" resp="false"/>
+        <Design name="healthy_187" map="false" resp="false"/>
+        <Design name="healthy_188" map="false" resp="false"/>
+        <Design name="healthy_189" map="false" resp="false"/>
+        <Design name="healthy_190" map="false" resp="false"/>
+        <Design name="healthy_191" map="false" resp="false"/>
+        <Design name="healthy_192" map="false" resp="false"/>
+        <Design name="healthy_193" map="false" resp="false"/>
+        <Design name="healthy_194" map="false" resp="false"/>
+        <Design name="healthy_195" map="false" resp="false"/>
+        <Design name="healthy_196" map="false" resp="false"/>
+        <Design name="healthy_197" map="false" resp="false"/>
+        <Design name="healthy_198" map="false" resp="false"/>
+        <Design name="healthy_199" map="false" resp="false"/>
+        <Design name="healthy_200" map="false" resp="false"/>
+        <Design name="healthy_201" map="false" resp="false"/>
+        <Design name="healthy_202" map="false" resp="false"/>
+        <Design name="healthy_203" map="false" resp="false"/>
+        <Design name="healthy_204" map="false" resp="false"/>
+        <Design name="healthy_205" map="false" resp="false"/>
+        <Design name="healthy_206" map="false" resp="false"/>
+        <Design name="healthy_207" map="false" resp="false"/>
+        <Design name="healthy_208" map="false" resp="false"/>
+        <Design name="healthy_209" map="false" resp="false"/>
+        <Design name="healthy_210" map="false" resp="false"/>
+        <Design name="healthy_211" map="false" resp="false"/>
+        <Design name="healthy_212" map="false" resp="false"/>
+        <Design name="healthy_213" map="false" resp="false"/>
+        <Design name="healthy_214" map="false" resp="false"/>
+        <Design name="healthy_215" map="false" resp="false"/>
+        <Design name="healthy_216" map="false" resp="false"/>
+        <Design name="healthy_217" map="false" resp="false"/>
+        <Design name="healthy_218" map="false" resp="false"/>
+        <Design name="healthy_219" map="false" resp="false"/>
+        <Design name="healthy_220" map="false" resp="false"/>
+        <Design name="healthy_221" map="false" resp="false"/>
+        <Design name="healthy_222" map="false" resp="false"/>
+        <Design name="healthy_223" map="false" resp="false"/>
+        <Design name="healthy_224" map="false" resp="false"/>
+        <Design name="healthy_225" map="false" resp="false"/>
+        <Design name="healthy_226" map="false" resp="false"/>
+        <Design name="healthy_227" map="false" resp="false"/>
+        <Design name="healthy_228" map="false" resp="false"/>
+        <Design name="healthy_229" map="false" resp="false"/>
+        <Design name="healthy_230" map="false" resp="false"/>
+        <Design name="healthy_231" map="false" resp="false"/>
+        <Design name="healthy_232" map="false" resp="false"/>
+        <Design name="healthy_233" map="false" resp="false"/>
+        <Design name="healthy_234" map="false" resp="false"/>
+        <Design name="healthy_235" map="false" resp="false"/>
+        <Design name="healthy_236" map="false" resp="false"/>
+        <Design name="healthy_237" map="false" resp="false"/>
+        <Design name="healthy_238" map="false" resp="false"/>
+        <Design name="healthy_239" map="false" resp="false"/>
+        <Design name="healthy_240" map="false" resp="false"/>
+        <Design name="healthy_241" map="false" resp="false"/>
+        <Design name="healthy_242" map="false" resp="false"/>
+        <Design name="healthy_243" map="false" resp="false"/>
+        <Design name="healthy_244" map="false" resp="false"/>
+        <Design name="healthy_245" map="false" resp="false"/>
+        <Design name="healthy_246" map="false" resp="false"/>
+        <Design name="healthy_247" map="false" resp="false"/>
+        <Design name="healthy_248" map="false" resp="false"/>
+        <Design name="healthy_249" map="false" resp="false"/>
+        <Design name="healthy_250" map="false" resp="false"/>
+        <Design name="healthy_251" map="false" resp="false"/>
+        <Design name="healthy_252" map="false" resp="false"/>
+        <Design name="healthy_253" map="false" resp="false"/>
+        <Design name="healthy_254" map="false" resp="false"/>
+        <Design name="healthy_255" map="false" resp="false"/>
+        <Design name="healthy_256" map="false" resp="false"/>
+        <Design name="healthy_257" map="false" resp="false"/>
+        <Design name="healthy_258" map="false" resp="false"/>
+        <Design name="healthy_259" map="false" resp="false"/>
+        <Design name="healthy_260" map="false" resp="false"/>
+        <Design name="healthy_261" map="false" resp="false"/>
+        <Design name="healthy_262" map="false" resp="false"/>
+        <Design name="healthy_263" map="false" resp="false"/>
+        <Design name="healthy_264" map="false" resp="false"/>
+        <Design name="healthy_265" map="false" resp="false"/>
+        <Design name="healthy_266" map="false" resp="false"/>
+        <Design name="healthy_267" map="false" resp="false"/>
+        <Design name="healthy_268" map="false" resp="false"/>
+        <Design name="healthy_269" map="false" resp="false"/>
+        <Design name="healthy_270" map="false" resp="false"/>
+        <Design name="healthy_271" map="false" resp="false"/>
+        <Design name="healthy_272" map="false" resp="false"/>
+        <Design name="healthy_273" map="false" resp="false"/>
+        <Design name="healthy_274" map="false" resp="false"/>
+        <Design name="healthy_275" map="false" resp="false"/>
+        <Design name="healthy_276" map="false" resp="false"/>
+        <Design name="healthy_277" map="false" resp="false"/>
+        <Design name="healthy_278" map="false" resp="false"/>
+        <Design name="healthy_279" map="false" resp="false"/>
+        <Design name="healthy_280" map="false" resp="false"/>
+        <Design name="healthy_281" map="false" resp="false"/>
+        <Design name="healthy_282" map="false" resp="false"/>
+        <Design name="healthy_283" map="false" resp="false"/>
+        <Design name="healthy_284" map="false" resp="false"/>
+        <Design name="healthy_285" map="false" resp="false"/>
+        <Design name="healthy_286" map="false" resp="false"/>
+        <Design name="healthy_287" map="false" resp="false"/>
+        <Design name="healthy_288" map="false" resp="false"/>
+        <Design name="healthy_289" map="false" resp="false"/>
+        <Design name="healthy_290" map="false" resp="false"/>
+        <Design name="healthy_291" map="false" resp="false"/>
+        <Design name="healthy_292" map="false" resp="false"/>
+        <Design name="healthy_293" map="false" resp="false"/>
+        <Design name="healthy_294" map="false" resp="false"/>
+        <Design name="healthy_295" map="false" resp="false"/>
+        <Design name="healthy_296" map="false" resp="false"/>
+        <Design name="healthy_297" map="false" resp="false"/>
+        <Design name="healthy_298" map="false" resp="false"/>
+        <Design name="healthy_299" map="false" resp="false"/>
+        <Design name="healthy_300" map="false" resp="false"/>
+        <Design name="healthy_301" map="false" resp="false"/>
+        <Data><![CDATA[
+ K4_bolt2, K5_bolt2, K6_bolt2, K4_bolt3, K5_bolt3, K6_bolt3, K4_bolt4, K5_bolt4, K6_bolt4, K4_bolt5, K5_bolt5, K6_bolt5, K4_bolt6, K5_bolt6, K6_bolt6, K4_bolt7, K5_bolt7, K6_bolt7, K4_bolt8, K5_bolt8, K6_bolt8, K4_bolt9, K5_bolt9, K6_bolt9, K4_bolt10, K5_bolt10, K6_bolt10, Response_Array, Modes1, Modes2, Modes3, Modes4, Modes5, Modes6, Modes7, Modes8, Modes9, Modes10
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8
+    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8
+    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8
+    9,    9,    9,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9,    8,    8,    8,    9,    9,    9,    9,    9,    9
+    8,    8,    8,    9,    9,    9,    8,    8,    8,    9,    9,    9,    8,    8,    8,    8,    8,    8,    9,    9,    9,    9,    9,    9,    9,    9,    9
+]]></Data>
+      </UserDesignSet>
+
+      <MethodData type="OPT">
+        <numEvals value="150"/>
+        <method value="SHERPA"/>
+        <SHERPA numEvals="150"/>
+      </MethodData>
+      <MethodData type="EVAL" numEvals="301"/>
+
+      <Designs>
+        <data><![CDATA[
+ Cycle #, Eval #, Source, Status
+]]></data>
+      </Designs>
+    </Agent>
+
+    <!--HEEDS.DesignSet-->
+    <DesignSet name="All Designs" type="5" agent="HEEDS.Agent.Sweep_1" flag="62"/>
+    <DesignSet name="Non-Error Designs" type="4" agent="HEEDS.Agent.Sweep_1" flag="46"/>
+    <DesignSet name="study_E_healthy_variation" agent="HEEDS.Agent.Sweep_1" flag="32" source="study_E_healthy_variation"/>
+  </Study>
+
+  <!--HEEDS.Static.Equation-->
+  <StaticEquation name="_desMin" active="true"/>
+  <StaticEquation name="_desMax" active="true"/>
+  <StaticEquation name="_bestVal" active="true"/>
+  <StaticEquation name="_desVal" active="true"/>
+</Project>
